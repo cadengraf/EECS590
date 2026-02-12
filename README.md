@@ -1,7 +1,5 @@
 # EECS590
-EECS is a reinforcement learning class 
-
-This project is a reinforcement learning project for the EECS590 class. It is designed to train autonomous agents (drones/vehicles) to navigate through an environment. 
+This project is a reinforcement learning project for EECS590 (Advanced Topic in Electrical Engineering and Computer Science). The project is designed to train autonomous agents (drones/vehicles) to navigate through an environment. 
 
 To run the project first clone the repository by running the following command:
 ```
