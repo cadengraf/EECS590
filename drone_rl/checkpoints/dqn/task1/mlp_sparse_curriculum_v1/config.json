@@ -1,0 +1,83 @@
+{
+    "learning_rate": 0.0001,
+    "gamma": 0.99,
+    "batch_size": 128,
+    "buffer_size": 100000,
+    "learning_starts": 20000,
+    "train_freq": 4,
+    "target_update_interval": 2000,
+    "exploration_fraction": 0.4,
+    "exploration_initial_eps": 1.0,
+    "exploration_final_eps": 0.1,
+    "viz_delay": 0.12,
+    "progress_print_freq": 5000,
+    "qdiag_freq": 20000,
+    "env_print_freq": 20000,
+    "stage_eval_episodes": 20,
+    "stage_eval_every": 25000,
+    "stage_promotion_success_rate": 0.7,
+    "stage_min_timesteps_before_promotion": 50000,
+    "stage_exploration_initial_eps": 1.0,
+    "stage_exploration_final_eps": 0.1,
+    "stage_exploration_fraction": 0.4,
+    "curriculum": [
+        {
+            "name": "stage_1",
+            "grid_size": [
+                4,
+                4
+            ],
+            "max_steps": 120,
+            "timesteps": 150000,
+            "exploration_initial_eps": 1.0,
+            "exploration_fraction": 0.35
+        },
+        {
+            "name": "stage_2",
+            "grid_size": [
+                6,
+                6
+            ],
+            "max_steps": 250,
+            "timesteps": 250000,
+            "exploration_initial_eps": 0.8,
+            "exploration_fraction": 0.4
+        },
+        {
+            "name": "stage_3",
+            "grid_size": [
+                8,
+                8
+            ],
+            "max_steps": 500,
+            "timesteps": 400000,
+            "exploration_initial_eps": 0.8,
+            "exploration_fraction": 0.45
+        },
+        {
+            "name": "stage_4",
+            "grid_size": [
+                10,
+                10
+            ],
+            "max_steps": 1000,
+            "timesteps": 550000,
+            "exploration_initial_eps": 1.0,
+            "exploration_fraction": 0.6,
+            "min_timesteps_before_promotion": 75000
+        },
+        {
+            "name": "stage_5",
+            "grid_size": [
+                12,
+                12
+            ],
+            "max_steps": 2000,
+            "timesteps": 750000,
+            "exploration_initial_eps": 1.0,
+            "exploration_fraction": 0.6,
+            "min_timesteps_before_promotion": 100000
+        }
+    ],
+    "timesteps": 2100000
+}

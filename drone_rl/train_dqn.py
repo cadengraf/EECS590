@@ -2,11 +2,7 @@ import os
 import json
 import numpy as np
 from stable_baselines3 import DQN
-from stable_baselines3.common.callbacks import (
-    CheckpointCallback, EvalCallback, BaseCallback
-)
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.callbacks import BaseCallback
 from envs.drone_env import DroneEnv
 from classical_methods.utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
 
@@ -38,24 +34,186 @@ class QValueDiagnosticCallback(BaseCallback):
             obs_tensor = torch.FloatTensor(obs_tensor).to(self.model.device)
             with torch.no_grad():
                 q_vals = self.model.q_net(obs_tensor).cpu().numpy()[0]
-            print(f"\n[Q-diag {self.num_timesteps}] "
-                  f"Q={np.round(q_vals, 3)}  "
-                  f"std={q_vals.std():.4f}  "
-                  f"argmax={q_vals.argmax()} (0=up 1=down 2=left 3=right)")
+            print(f"\n[Q-diag {self.num_timesteps}] Q={np.round(q_vals, 3)}")
         return True
 
 
 ACTION_NAMES = ["up", "down", "left", "right"]
 
 
+def build_bw_map(grid_size, loop_prob=0.25):
+    pipe_grid = PipeGrid(grid_size[0], grid_size[1], loop_prob=loop_prob)
+    pipe_vis = PipeVisualizerBW(lanes=2, base=3)
+    return pipe_vis.render(pipe_grid.to_pipe_ids(PipeOptions()))
+
+
+
+def build_env(stage, print_freq=0):
+    bw_map = build_bw_map(stage["grid_size"], loop_prob=stage.get("loop_prob", 0.25))
+    return DroneEnv(
+        bw_map,
+        max_steps=stage["max_steps"],
+        print_freq=print_freq,
+    )
+
+
+
+def clone_env(source_env, print_freq=0):
+    env = DroneEnv(source_env.bw_map.copy(), max_steps=source_env.max_steps, print_freq=print_freq)
+    env.fixed_start = source_env.fixed_start
+    env.fixed_package = source_env.fixed_package
+    env.fixed_delivery = source_env.fixed_delivery
+    return env
+
+
+
+def describe_env(tag, env):
+    print(f"{tag} observation space: {env.observation_space}")
+    print(f"{tag} grid shape:        {env.grid_shape}")
+    print(f"{tag} start:             {env.fixed_start}")
+    print(f"{tag} package:           {env.fixed_package}")
+    print(f"{tag} delivery:          {env.fixed_delivery}")
+    print(f"{tag} lane cells:        {len(env.lane_coords)}")
+
+
+
+def configure_stage_exploration(model, stage, config):
+    exploration_initial_eps = stage.get(
+        "exploration_initial_eps",
+        config["stage_exploration_initial_eps"],
+    )
+    exploration_final_eps = stage.get(
+        "exploration_final_eps",
+        config["stage_exploration_final_eps"],
+    )
+    exploration_fraction = stage.get(
+        "exploration_fraction",
+        config["stage_exploration_fraction"],
+    )
+
+    model.exploration_initial_eps = exploration_initial_eps
+    model.exploration_final_eps = exploration_final_eps
+    model.exploration_fraction = exploration_fraction
+    model.exploration_rate = exploration_initial_eps
+
+    print(
+        "Stage exploration: "
+        f"initial={exploration_initial_eps:.2f} | "
+        f"final={exploration_final_eps:.2f} | "
+        f"fraction={exploration_fraction:.2f}"
+    )
+
+
+
+def evaluate_stage(model, source_env, n_eval_episodes):
+    eval_env = clone_env(source_env, print_freq=0)
+    rewards = []
+    lengths = []
+    successes = 0
+    pickups = 0
+
+    for _ in range(n_eval_episodes):
+        obs, _ = eval_env.reset()
+        done = False
+        truncated = False
+        episode_reward = 0.0
+        episode_steps = 0
+        picked_up = False
+
+        while not (done or truncated):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, _ = eval_env.step(action)
+            episode_reward += reward
+            episode_steps += 1
+            picked_up = picked_up or bool(eval_env.state[2])
+
+        rewards.append(episode_reward)
+        lengths.append(episode_steps)
+        pickups += int(picked_up)
+
+        reached_delivery = tuple(eval_env.state[:2]) == tuple(eval_env.fixed_delivery)
+        delivered = done and reached_delivery and bool(eval_env.state[2])
+        successes += int(delivered)
+
+    success_rate = successes / n_eval_episodes
+    pickup_rate = pickups / n_eval_episodes
+    mean_reward = float(np.mean(rewards))
+    mean_length = float(np.mean(lengths))
+    return success_rate, pickup_rate, mean_reward, mean_length
+
+
+class StagePromotionCallback(BaseCallback):
+    def __init__(
+        self,
+        stage_name,
+        source_env,
+        eval_every,
+        n_eval_episodes,
+        promotion_threshold,
+        min_timesteps_before_promotion,
+        save_dir,
+    ):
+        super().__init__()
+        self.stage_name = stage_name
+        self.source_env = source_env
+        self.eval_every = eval_every
+        self.n_eval_episodes = n_eval_episodes
+        self.promotion_threshold = promotion_threshold
+        self.min_timesteps_before_promotion = min_timesteps_before_promotion
+        self.save_dir = save_dir
+        self.promoted = False
+        self.last_eval = None
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps % self.eval_every != 0:
+            return True
+
+        success_rate, pickup_rate, mean_reward, mean_length = evaluate_stage(
+            self.model,
+            self.source_env,
+            self.n_eval_episodes,
+        )
+        self.last_eval = {
+            "success_rate": success_rate,
+            "pickup_rate": pickup_rate,
+            "mean_reward": mean_reward,
+            "mean_length": mean_length,
+            "timesteps": self.num_timesteps,
+        }
+        print(
+            f"Stage eval after {self.num_timesteps:>6} steps | "
+            f"success_rate={success_rate:.2%} | "
+            f"pickup_rate={pickup_rate:.2%} | "
+            f"mean_reward={mean_reward:.2f} | "
+            f"mean_length={mean_length:.1f}"
+        )
+
+        stage_model_path = os.path.join(
+            self.save_dir,
+            f"model_{self.stage_name}_{self.num_timesteps}_steps",
+        )
+        self.model.save(stage_model_path)
+
+        if (
+            self.num_timesteps >= self.min_timesteps_before_promotion
+            and success_rate >= self.promotion_threshold
+        ):
+            print(
+                f"Promoting from {self.stage_name} early: success rate {success_rate:.2%} "
+                f">= threshold {self.promotion_threshold:.2%}"
+            )
+            self.promoted = True
+            return False
+
+        return True
+
+
+
 def visualize_trained_policy(model, source_env, delay=0.12):
     import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap
 
-    rollout_env = DroneEnv(source_env.bw_map, max_steps=source_env.max_steps)
-    rollout_env.fixed_start = source_env.fixed_start
-    rollout_env.fixed_package = source_env.fixed_package
-    rollout_env.fixed_delivery = source_env.fixed_delivery
+    rollout_env = clone_env(source_env, print_freq=0)
 
     obs, _ = rollout_env.reset()
     trajectory = [(rollout_env.state[0], rollout_env.state[1])]
@@ -148,31 +306,13 @@ def visualize_trained_policy(model, source_env, delay=0.12):
     print(f"  Steps:        {steps}")
     print(f"  Total reward: {total_reward:.2f}")
     print(f"  Final state:  {rollout_env.state}")
-    print("  Visualization used the exact training map and fixed positions.")
+    print("  Visualization used the final curriculum stage map and positions.")
 
     plt.ioff()
     plt.show()
 
 
-# --- Build map ---
-grid_size = (12, 12)
-pg = PipeGrid(*grid_size)
-vis = PipeVisualizerBW(lanes=2, base=3)
-bw_map = vis.render(pg.to_pipe_ids(PipeOptions()))
-
-# --- Envs ---
-train_env = DroneEnv(bw_map, print_freq=100_000)
-eval_env_raw = DroneEnv(bw_map)
-eval_env = DummyVecEnv([lambda: Monitor(eval_env_raw)])
-
-print("Observation space:", train_env.observation_space)
-print(f"Start:      {train_env.fixed_start}")
-print(f"Package:    {train_env.fixed_package}")
-print(f"Delivery:   {train_env.fixed_delivery}")
-print(f"Lane cells: {len(train_env.lane_coords)}")
-
-# --- Config ---
-run_name = "mlp_sparse_v1"
+run_name = "mlp_sparse_curriculum_v1"
 save_dir = f"checkpoints/dqn/task1/{run_name}"
 os.makedirs(save_dir, exist_ok=True)
 
@@ -187,31 +327,34 @@ config = {
     "exploration_fraction": 0.4,
     "exploration_initial_eps": 1.0,
     "exploration_final_eps": 0.1,
-    "timesteps": 2_000_000,
     "viz_delay": 0.12,
+    "progress_print_freq": 5000,
+    "qdiag_freq": 20_000,
+    "env_print_freq": 20_000,
+    "stage_eval_episodes": 20,
+    "stage_eval_every": 25_000,
+    "stage_promotion_success_rate": 0.70,
+    "stage_min_timesteps_before_promotion": 50_000,
+    "stage_exploration_initial_eps": 1.0,
+    "stage_exploration_final_eps": 0.10,
+    "stage_exploration_fraction": 0.40,
+    "curriculum": [
+        {"name": "stage_1", "grid_size": [4, 4], "max_steps": 120, "timesteps": 150_000, "exploration_initial_eps": 1.0, "exploration_fraction": 0.35},
+        {"name": "stage_2", "grid_size": [6, 6], "max_steps": 250, "timesteps": 250_000, "exploration_initial_eps": 0.8, "exploration_fraction": 0.40},
+        {"name": "stage_3", "grid_size": [8, 8], "max_steps": 500, "timesteps": 400_000, "exploration_initial_eps": 0.8, "exploration_fraction": 0.45},
+        {"name": "stage_4", "grid_size": [10, 10], "max_steps": 1000, "timesteps": 550_000, "exploration_initial_eps": 1.0, "exploration_fraction": 0.60, "min_timesteps_before_promotion": 75_000},
+        {"name": "stage_5", "grid_size": [12, 12], "max_steps": 2000, "timesteps": 750_000, "exploration_initial_eps": 1.0, "exploration_fraction": 0.60, "min_timesteps_before_promotion": 100_000},
+    ],
 }
+config["timesteps"] = sum(stage["timesteps"] for stage in config["curriculum"])
 
 with open(f"{save_dir}/config.json", "w") as f:
     json.dump(config, f, indent=4)
 
-# --- Callbacks ---
-checkpoint_cb = CheckpointCallback(
-    save_freq=100_000,
-    save_path=save_dir,
-    name_prefix="model"
-)
-eval_cb = EvalCallback(
-    eval_env,
-    best_model_save_path=f"{save_dir}/best",
-    log_path=f"{save_dir}/logs",
-    eval_freq=10_000,
-    n_eval_episodes=20,
-    deterministic=True,
-    verbose=1
-)
-qdiag_cb = QValueDiagnosticCallback(train_env, check_freq=20_000)
+first_stage = config["curriculum"][0]
+train_env = build_env(first_stage, print_freq=config["env_print_freq"])
+describe_env("Initial", train_env)
 
-# --- Model ---
 model = DQN(
     "MlpPolicy",
     train_env,
@@ -229,12 +372,42 @@ model = DQN(
     verbose=0
 )
 
-model.learn(
-    total_timesteps=config["timesteps"],
-    callback=[checkpoint_cb, eval_cb, qdiag_cb,
-              ProgressCallback(print_freq=5000)]
-)
+final_stage_env = train_env
+for stage_idx, stage in enumerate(config["curriculum"], start=1):
+    print(f"\n=== Curriculum Stage {stage_idx}/{len(config['curriculum'])}: {stage['name']} ===")
+    stage_train_env = build_env(stage, print_freq=config["env_print_freq"])
+    describe_env("Stage", stage_train_env)
+    print(f"Stage max timesteps: {stage['timesteps']}")
+
+    model.set_env(stage_train_env)
+    configure_stage_exploration(model, stage, config)
+
+    progress_cb = ProgressCallback(print_freq=config["progress_print_freq"])
+    qdiag_cb = QValueDiagnosticCallback(stage_train_env, check_freq=config["qdiag_freq"])
+    promotion_cb = StagePromotionCallback(
+        stage_name=stage["name"],
+        source_env=stage_train_env,
+        eval_every=stage.get("eval_every", config["stage_eval_every"]),
+        n_eval_episodes=stage.get("eval_episodes", config["stage_eval_episodes"]),
+        promotion_threshold=stage.get("promotion_success_rate", config["stage_promotion_success_rate"]),
+        min_timesteps_before_promotion=stage.get(
+            "min_timesteps_before_promotion",
+            config["stage_min_timesteps_before_promotion"],
+        ),
+        save_dir=save_dir,
+    )
+
+    model.learn(
+        total_timesteps=stage["timesteps"],
+        reset_num_timesteps=True,
+        callback=[progress_cb, qdiag_cb, promotion_cb],
+    )
+
+    if not promotion_cb.promoted:
+        print(f"Completed full budget for {stage['name']} without early promotion.")
+
+    final_stage_env = stage_train_env
 
 model.save(f"{save_dir}/model_final")
 print("Training complete!")
-visualize_trained_policy(model, train_env, delay=config["viz_delay"])
+visualize_trained_policy(model, final_stage_env, delay=config["viz_delay"])
