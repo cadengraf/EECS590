@@ -1,0 +1,21 @@
+2️⃣ Why it can’t find the “best path”
+DQN with a fully-connected network (MLP) only sees positions as numbers.
+Without an explicit grid map input, it can’t plan around walls.
+It may learn some local avoidance through penalties, but it won’t reliably plan optimal paths.
+3️⃣ How to fix it
+
+You have a few options:
+
+Option A: Add grid map to observation
+Include a local patch around the drone (like a 5x5 or 7x7 window) or the full grid as input.
+Then use a CNN instead of MLP.
+This allows the agent to “see” walls and learn proper navigation.
+Option B: Use classical pathfinding + RL
+Use RL only for high-level decision (e.g., which corridor to go down).
+Compute low-level movement using A* or BFS to avoid walls.
+Option C: Reward shaping / wall penalties
+Increase strong penalties for hitting walls (-10 to -20).
+It may force the agent to learn simple avoidance, but still not optimal pathfinding.
+
+
+

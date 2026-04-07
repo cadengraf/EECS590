@@ -1,0 +1,13 @@
+{
+    "learning_rate": 0.0001,
+    "gamma": 0.99,
+    "batch_size": 32,
+    "buffer_size": 100000,
+    "learning_starts": 10000,
+    "train_freq": 4,
+    "target_update_interval": 1000,
+    "exploration_fraction": 0.5,
+    "exploration_initial_eps": 1.0,
+    "exploration_final_eps": 0.1,
+    "timesteps": 1000000
+}
