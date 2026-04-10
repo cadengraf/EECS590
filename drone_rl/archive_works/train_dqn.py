@@ -5,6 +5,7 @@ from stable_baselines3 import DQN
 from stable_baselines3.common.callbacks import BaseCallback
 from envs.drone_env import DroneEnv
 from classical_methods.utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
+from classical_methods.utils.saliency import run_saliency_suite as render_saliency_suite
 
 
 class ProgressCallback(BaseCallback):
@@ -64,6 +65,64 @@ def clone_env(source_env, print_freq=0):
     env.fixed_package = source_env.fixed_package
     env.fixed_delivery = source_env.fixed_delivery
     return env
+
+
+def _state_to_obs(env, state):
+    prev_state = env.state
+    env.state = (state[0], state[1], int(state[2]))
+    try:
+        return env._get_obs()
+    finally:
+        env.state = prev_state
+
+
+def _collect_policy_path(model, source_env):
+    rollout_env = clone_env(source_env, print_freq=0)
+    obs, _ = rollout_env.reset()
+    path = [tuple(rollout_env.state)]
+    done = False
+    truncated = False
+
+    while not (done or truncated):
+        action, _ = model.predict(obs, deterministic=True)
+        obs, _, done, truncated, _ = rollout_env.step(action)
+        path.append(tuple(rollout_env.state))
+
+    return rollout_env, path
+
+
+def run_saliency_suite(model, source_env, show=True):
+    import torch
+
+    rollout_env, path = _collect_policy_path(model, source_env)
+
+    class SaliencyDQNAdapter:
+        def __init__(self, sb3_model, env):
+            self.actions = env.actions
+            self.lane_coords = env.lane_coords
+            self.package_pos = env.fixed_package
+            self.delivery_pos = env.fixed_delivery
+            self.Q = {}
+
+            with torch.no_grad():
+                for r, c in env.lane_coords:
+                    for has_pkg in (False, True):
+                        state = (r, c, has_pkg)
+                        obs = _state_to_obs(env, state)
+                        obs_tensor = torch.as_tensor(
+                            obs[None],
+                            dtype=torch.float32,
+                            device=sb3_model.device,
+                        )
+                        q_vals = sb3_model.q_net(obs_tensor).cpu().numpy()[0]
+                        self.Q[state] = q_vals.copy()
+
+    render_saliency_suite(
+        SaliencyDQNAdapter(model, rollout_env),
+        path,
+        rollout_env.bw_map,
+        show=show,
+    )
 
 
 
@@ -410,4 +469,5 @@ for stage_idx, stage in enumerate(config["curriculum"], start=1):
 
 model.save(f"{save_dir}/model_final")
 print("Training complete!")
+run_saliency_suite(model, final_stage_env, show=True)
 visualize_trained_policy(model, final_stage_env, delay=config["viz_delay"])

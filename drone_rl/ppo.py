@@ -8,6 +8,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 from envs.drone_env import DroneEnv
 from classical_methods.utils.pipes import PipeGrid, PipeOptions, PipeVisualizerBW
+from classical_methods.utils.saliency import run_saliency_suite as render_saliency_suite
 
 ACTION_NAMES = ["up", "down", "left", "right"]
 
@@ -115,6 +116,67 @@ def clone_env(env):
     cloned.fixed_package = env.fixed_package
     cloned.fixed_delivery = env.fixed_delivery
     return cloned
+
+
+def _state_to_obs(env, state):
+    prev_state = env.state
+    env.state = (state[0], state[1], int(state[2]))
+    try:
+        return env._get_obs()
+    finally:
+        env.state = prev_state
+
+
+def _collect_policy_path(model, src_env):
+    env = clone_env(src_env)
+    env.randomize_package = False
+    env.randomize_delivery = False
+
+    obs, _ = env.reset()
+    path = [tuple(env.state)]
+    done = truncated = False
+
+    while not (done or truncated):
+        action, _ = model.predict(obs, deterministic=True)
+        obs, _, done, truncated, _ = env.step(action)
+        path.append(tuple(env.state))
+
+    return env, path
+
+
+def run_saliency_suite(model, src_env, show=True):
+    import torch
+
+    rollout_env, path = _collect_policy_path(model, src_env)
+
+    class SaliencyPPOAdapter:
+        def __init__(self, sb3_model, env):
+            self.actions = env.actions
+            self.lane_coords = env.lane_coords
+            self.package_pos = env.fixed_package
+            self.delivery_pos = env.fixed_delivery
+            self.Q = {}
+
+            with torch.no_grad():
+                for r, c in env.lane_coords:
+                    for has_pkg in (False, True):
+                        state = (r, c, has_pkg)
+                        obs = _state_to_obs(env, state)
+                        obs_tensor = torch.as_tensor(
+                            obs[None],
+                            dtype=torch.float32,
+                            device=sb3_model.device,
+                        )
+                        dist = sb3_model.policy.get_distribution(obs_tensor)
+                        action_scores = dist.distribution.probs.cpu().numpy()[0]
+                        self.Q[state] = action_scores.copy()
+
+    render_saliency_suite(
+        SaliencyPPOAdapter(model, rollout_env),
+        path,
+        rollout_env.bw_map,
+        show=show,
+    )
 
 
 def evaluate(model, env, n_episodes=20):
@@ -347,6 +409,7 @@ def main():
     )
 
     model.save(os.path.join(save_dir, "model_final"))
+    run_saliency_suite(model, env, show=True)
 
     if config["viz_enabled"]:
         viz_save_path = config["viz_save_path"]
