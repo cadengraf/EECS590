@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
+from utils.saliency import run_saliency_suite
 
 class SARSADrone:
     def __init__(self, bw_map, package_pos, delivery_pos,
@@ -32,10 +33,8 @@ class SARSADrone:
             return np.random.randint(len(self.actions))
         return np.argmax(self.get_Q(state))
 
-    def manhattan(self, a, b):
-        return abs(a[0]-b[0]) + abs(a[1]-b[1])
-
-    def step_env(self, state, action_idx, prev_state):
+    # --- FIXED STEP FUNCTION (NO DISTANCE) ---
+    def step_env(self, state, action_idx, prev_state, visit_counts):
         r, c, has_pkg = state
         dr, dc = self.actions[action_idx]
 
@@ -47,50 +46,40 @@ class SARSADrone:
             invalid_move = True
 
         new_has_pkg = has_pkg
+        reward = -1.0  # base step penalty
 
-        # --- BASE REWARD ---
-        reward = -1.0
-
-        # STRONG invalid move penalty
         if invalid_move:
             reward -= 5.0
 
-        # DISTANCE REWARD
-        target = self.delivery_pos if has_pkg else self.package_pos
-        old_dist = self.manhattan((r, c), target)
-        new_dist = self.manhattan((nr, nc), target)
+        visits = visit_counts.get((nr, nc), 0)
+        reward -= 0.5 * visits
 
-        if new_dist < old_dist:
-            reward += 1.0
-        else:
-            reward -= 0.5
+        if prev_state is not None and (nr, nc) == (prev_state[0], prev_state[1]):
+            reward -= 3.0
 
-        # BACKTRACK PENALTY
-        if prev_state is not None:
-            if (nr, nc) == (prev_state[0], prev_state[1]):
-                reward -= 3.0
-
-        # PICKUP
         if not has_pkg and (nr, nc) == self.package_pos:
             new_has_pkg = True
             reward += 100
 
-        # DELIVERY
         elif has_pkg and (nr, nc) == self.delivery_pos:
             reward += 200
 
         return (nr, nc, new_has_pkg), reward
 
-    def train(self, start_pos, episodes=700):
-        print("Training SARSA agent (no-stuck version)...")
+    def train(self, start_pos, episodes=2000, max_steps=1000):
+        print("Training SARSA fixed...")
 
         for ep in range(episodes):
             state = (start_pos[0], start_pos[1], False)
             action = self.choose_action(state)
             prev_state = None
+            visit_counts = {}
 
-            for step in range(500):
-                next_state, reward = self.step_env(state, action, prev_state)
+            for step in range(max_steps):
+                # Track visits
+                visit_counts[(state[0], state[1])] = visit_counts.get((state[0], state[1]), 0) + 1
+
+                next_state, reward = self.step_env(state, action, prev_state, visit_counts)
                 next_action = self.choose_action(next_state)
 
                 Q_s = self.get_Q(state)
@@ -107,7 +96,6 @@ class SARSADrone:
                 if state[2] and (state[0], state[1]) == self.delivery_pos:
                     break
 
-            # decay exploration
             self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
 
             if ep % 50 == 0:
@@ -134,7 +122,7 @@ if __name__ == "__main__":
 
     drone = SARSADrone(bw_map, package_pos, delivery_pos)
 
-    drone.train(start_pos, episodes=700)
+    drone.train(start_pos, episodes=2000)
 
     # --- RUN POLICY ---
     curr_state = (start_pos[0], start_pos[1], False)
@@ -161,12 +149,14 @@ if __name__ == "__main__":
             print(f"Delivered in {step} steps!")
             break
 
+    run_saliency_suite(drone, path, bw_map, show=True)
+
     # --- VISUALIZATION ---
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.imshow(bw_map, cmap="gray")
 
-    p_mark, = ax.plot(package_pos[1], package_pos[0], 'ys', markersize=10)
-    d_mark, = ax.plot(delivery_pos[1], delivery_pos[0], 'gx', markersize=12)
+    ax.plot(package_pos[1], package_pos[0], 'ys', markersize=10)
+    ax.plot(delivery_pos[1], delivery_pos[0], 'gx', markersize=12)
     drone_mark, = ax.plot([], [], 'ro', markersize=7)
 
     def update(frame):
@@ -176,5 +166,5 @@ if __name__ == "__main__":
         return drone_mark,
 
     ani = animation.FuncAnimation(fig, update, frames=len(path), interval=60)
-    ani.save("sarsa_fixed2.gif", writer="pillow")
+    ani.save("sarsa_fixed.gif", writer="pillow")
     plt.show()

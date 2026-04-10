@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
+from utils.saliency import run_saliency_suite
 
 class SARSADrone:
     def __init__(self, bw_map, package_pos, delivery_pos,
@@ -32,43 +33,32 @@ class SARSADrone:
             return np.random.randint(len(self.actions))
         return np.argmax(self.get_Q(state))
 
-    def manhattan(self, a, b):
-        return abs(a[0]-b[0]) + abs(a[1]-b[1])
-
-    def step_env(self, state, action_idx, prev_state):
+    # Step funct 
+    def step_env(self, state, action_idx, prev_state, visit_counts):
         r, c, has_pkg = state
         dr, dc = self.actions[action_idx]
 
         nr, nc = r + dr, c + dc
-
         invalid_move = False
+
         if (nr, nc) not in self.lane_coords:
             nr, nc = r, c
             invalid_move = True
 
         new_has_pkg = has_pkg
+        reward = -1.0  # base step cost
 
-        # --- BASE REWARD ---
-        reward = -1.0
-
-        # STRONG invalid move penalty
+        # INVALID MOVE PENALTY
         if invalid_move:
             reward -= 5.0
 
-        # DISTANCE REWARD
-        target = self.delivery_pos if has_pkg else self.package_pos
-        old_dist = self.manhattan((r, c), target)
-        new_dist = self.manhattan((nr, nc), target)
-
-        if new_dist < old_dist:
-            reward += 1.0
-        else:
-            reward -= 0.5
+        # VISIT PENALTY (anti-loop)
+        visits = visit_counts.get((nr, nc), 0)
+        reward -= 0.5 * visits
 
         # BACKTRACK PENALTY
-        if prev_state is not None:
-            if (nr, nc) == (prev_state[0], prev_state[1]):
-                reward -= 3.0
+        if prev_state is not None and (nr, nc) == (prev_state[0], prev_state[1]):
+            reward -= 3.0
 
         # PICKUP
         if not has_pkg and (nr, nc) == self.package_pos:
@@ -81,13 +71,16 @@ class SARSADrone:
 
         return (nr, nc, new_has_pkg), reward
 
-    def train_n_step(self, start_pos, n=5, episodes=700):
+    # --- FIXED N-STEP SARSA ---
+    def train_n_step(self, start_pos, n=5, episodes=1000, max_steps=500):
         print(f"Training {n}-step SARSA...")
 
         for ep in range(episodes):
             states = []
             actions = []
             rewards = [0]
+
+            visit_counts = {}
 
             state = (start_pos[0], start_pos[1], False)
             action = self.choose_action(state)
@@ -97,10 +90,14 @@ class SARSADrone:
 
             T = float('inf')
             t = 0
+            prev_state = None
 
             while True:
                 if t < T:
-                    next_state, reward = self.step_env(state, action, None)
+                    # Track visits
+                    visit_counts[(state[0], state[1])] = visit_counts.get((state[0], state[1]), 0) + 1
+
+                    next_state, reward = self.step_env(state, action, prev_state, visit_counts)
                     rewards.append(reward)
 
                     if next_state[2] and (next_state[0], next_state[1]) == self.delivery_pos:
@@ -110,12 +107,15 @@ class SARSADrone:
                         states.append(next_state)
                         actions.append(next_action)
 
+                    prev_state = state
                     state = next_state
                     action = next_action if t + 1 < T else None
 
                 tau = t - n + 1
+
                 if tau >= 0:
                     G = 0.0
+
                     for i in range(tau + 1, min(tau + n, T) + 1):
                         G += (self.gamma ** (i - tau - 1)) * rewards[i]
 
@@ -135,7 +135,7 @@ class SARSADrone:
             if ep % 50 == 0:
                 print(f"Episode {ep}, epsilon={self.epsilon:.3f}")
 
-        print("n-step training complete!")
+        print("Training complete!")
 
     def get_action(self, state):
         return self.actions[np.argmax(self.get_Q(state))]
@@ -156,7 +156,7 @@ if __name__ == "__main__":
 
     drone = SARSADrone(bw_map, package_pos, delivery_pos)
 
-    drone.train_n_step(start_pos, episodes=700)
+    drone.train_n_step(start_pos, n=5, episodes=2000)
 
     # --- RUN POLICY ---
     curr_state = (start_pos[0], start_pos[1], False)
@@ -183,12 +183,14 @@ if __name__ == "__main__":
             print(f"Delivered in {step} steps!")
             break
 
+    run_saliency_suite(drone, path, bw_map, show=True)
+
     # --- VISUALIZATION ---
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.imshow(bw_map, cmap="gray")
 
-    p_mark, = ax.plot(package_pos[1], package_pos[0], 'ys', markersize=10)
-    d_mark, = ax.plot(delivery_pos[1], delivery_pos[0], 'gx', markersize=12)
+    ax.plot(package_pos[1], package_pos[0], 'ys', markersize=10)
+    ax.plot(delivery_pos[1], delivery_pos[0], 'gx', markersize=12)
     drone_mark, = ax.plot([], [], 'ro', markersize=7)
 
     def update(frame):
@@ -198,5 +200,5 @@ if __name__ == "__main__":
         return drone_mark,
 
     ani = animation.FuncAnimation(fig, update, frames=len(path), interval=60)
-    ani.save("sarsa_fixed2.gif", writer="pillow")
+    ani.save("sarsa_nstep.gif", writer="pillow")
     plt.show()

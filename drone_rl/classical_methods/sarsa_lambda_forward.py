@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
-
+from utils.saliency import run_saliency_suite
 
 class SARSADrone:
     def __init__(self, bw_map, package_pos, delivery_pos,
@@ -20,7 +20,6 @@ class SARSADrone:
 
         self.actions = [(-1,0),(1,0),(0,-1),(0,1)]
         self.lane_coords = [tuple(p) for p in np.argwhere(bw_map == 1)]
-
         self.Q = {}
 
     def get_Q(self, state):
@@ -34,49 +33,39 @@ class SARSADrone:
         q = self.get_Q(state)
         return np.random.choice(np.flatnonzero(q == q.max()))
 
-    def manhattan(self, a, b):
-        return abs(a[0]-b[0]) + abs(a[1]-b[1])
-
     def step_env(self, state, action_idx, visited):
         r, c, has_pkg = state
         dr, dc = self.actions[action_idx]
-
         nr, nc = r + dr, c + dc
 
         if (nr, nc) not in self.lane_coords:
             nr, nc = r, c
 
         new_has_pkg = has_pkg
-        reward = -1.0  # step penalty
+        reward = -1.0  # base step penalty
 
-        target = self.delivery_pos if has_pkg else self.package_pos
-        old_dist = self.manhattan((r, c), target)
-        new_dist = self.manhattan((nr, nc), target)
-
-        # 🔥 STRONG monotonic shaping
-        reward += 3.0 * (old_dist - new_dist)
-
-        # 🔥 loop penalty
+        # Loop/backtracking penalty
         if (nr, nc, has_pkg) in visited:
             reward -= 3.0
         visited.add((nr, nc, has_pkg))
 
-        # PICKUP
+        # Pickup reward
         if not has_pkg and (nr, nc) == self.package_pos:
             new_has_pkg = True
             reward += 150
 
-        # DELIVERY (make this DOMINANT)
+        # Delivery reward (dominant)
         if new_has_pkg and (nr, nc) == self.delivery_pos:
-            reward += 500  # huge so it's always optimal
+            reward += 500
 
-        # 🔥 FORCE last step preference
-        if has_pkg and new_dist == 1:
-            reward += 50
+        # Directional shaping
+        neighbors = [(nr+dr2, nc+dc2) for dr2, dc2 in self.actions if (nr+dr2, nc+dc2) in self.lane_coords]
+        unvisited_neighbors = sum(1 for nb in neighbors if (nb[0], nb[1], new_has_pkg) not in visited)
+        reward += 0.5 * unvisited_neighbors  
 
         return (nr, nc, new_has_pkg), reward
 
-    def train_lambda_forward(self, start_pos, lmbda=0.8, episodes=700):
+    def train_lambda_forward(self, start_pos, lmbda=0.8, episodes=3000, max_steps=500):
         print("Training forward-view SARSA(lambda)...")
 
         for ep in range(episodes):
@@ -86,11 +75,9 @@ class SARSADrone:
             state = (start_pos[0], start_pos[1], False)
             action = self.choose_action(state)
 
-            # --- generate episode ---
-            for _ in range(300):
+            for _ in range(max_steps):
                 next_state, reward = self.step_env(state, action, visited)
                 next_action = self.choose_action(next_state)
-
                 episode.append((state, action, reward))
 
                 state = next_state
@@ -102,26 +89,22 @@ class SARSADrone:
 
             T = len(episode)
 
-            # --- precompute returns ---
+            # Precompute returns
             G = np.zeros(T + 1)
             for t in reversed(range(T)):
                 G[t] = episode[t][2] + self.gamma * G[t + 1]
 
-            # --- lambda returns ---
+            # Lambda returns
             for t in range(T - 1):
                 G_lambda = 0.0
                 lambda_pow = 1.0
-
                 for n in range(1, T - t):
                     G_n = G[t] - (self.gamma ** n) * G[t + n]
-
                     if t + n < T:
                         s_n, a_n, _ = episode[t + n]
                         G_n += (self.gamma ** n) * self.get_Q(s_n)[a_n]
-
                     G_lambda += lambda_pow * G_n
                     lambda_pow *= lmbda
-
                 G_lambda *= (1 - lmbda)
 
                 s, a, _ = episode[t]
@@ -129,7 +112,6 @@ class SARSADrone:
                 Q_s[a] += self.alpha * (G_lambda - Q_s[a])
 
             self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
-
             if ep % 50 == 0:
                 print(f"Episode {ep}, epsilon={self.epsilon:.3f}")
 
@@ -139,34 +121,28 @@ class SARSADrone:
         q = self.get_Q(state)
         return self.actions[np.random.choice(np.flatnonzero(q == q.max()))]
 
-
 # --- MAIN ---
 if __name__ == "__main__":
-    grid_size = (12, 12)
+    grid_size = (6, 6)
     pg = PipeGrid(*grid_size)
     vis = PipeVisualizerBW(lanes=2, base=3)
     bw_map = vis.render(pg.to_pipe_ids(PipeOptions()))
 
     lane_coords = [tuple(p) for p in np.argwhere(bw_map == 1)]
-
     start_pos = lane_coords[0]
     package_pos = lane_coords[len(lane_coords)//2]
     delivery_pos = lane_coords[-1]
 
     drone = SARSADrone(bw_map, package_pos, delivery_pos)
-
-    drone.train_lambda_forward(start_pos, episodes=700)
+    drone.train_lambda_forward(start_pos, episodes=3000, max_steps=500)
 
     # --- RUN POLICY ---
     curr_state = (start_pos[0], start_pos[1], False)
     path = [curr_state]
 
-    print("Running trained policy...")
-
-    for step in range(300):
+    for step in range(500):
         action = drone.get_action(curr_state)
         r, c, has_pkg = curr_state
-
         nr, nc = r + action[0], c + action[1]
         if (nr, nc) not in drone.lane_coords:
             nr, nc = r, c
@@ -177,15 +153,15 @@ if __name__ == "__main__":
             curr_state = (nr, nc, has_pkg)
 
         path.append(curr_state)
-
         if curr_state[2] and (nr, nc) == delivery_pos:
-            print(f"Delivered in {step} steps!")
+            print(f"Delivered in {len(path)} steps!")
             break
+
+    run_saliency_suite(drone, path, bw_map, show=True)
 
     # --- VISUALIZATION ---
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.imshow(bw_map, cmap="gray")
-
     ax.plot(package_pos[1], package_pos[0], 'ys', markersize=10)
     ax.plot(delivery_pos[1], delivery_pos[0], 'gx', markersize=12)
     drone_mark, = ax.plot([], [], 'ro', markersize=7)

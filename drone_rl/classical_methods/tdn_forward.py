@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
+from utils.saliency import run_saliency_suite
 
 class DeliveryDroneTDN:
     def __init__(self, bw_map, start_pos, package_pos, delivery_pos,
@@ -122,7 +123,7 @@ if __name__ == "__main__":
 
     drone = DeliveryDroneTDN(bw_map, start_pos, package_pos, delivery_pos)
 
-    # --- SIMULATION ---
+    # sim 
     state = (start_pos[0], start_pos[1], False)
     path = [state]
     for step in range(500):
@@ -136,7 +137,9 @@ if __name__ == "__main__":
             state = drone.step(state, action)
         path.append(state)
 
-    # --- VISUALIZATION ---
+    run_saliency_suite(drone, path, bw_map, show=True)
+
+    # viz 
     fig, ax = plt.subplots(figsize=(8,8))
     ax.imshow(bw_map, cmap="gray")
     p_mark, = ax.plot(package_pos[1], package_pos[0],'ys',markersize=10,label="Package")

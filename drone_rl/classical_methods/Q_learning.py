@@ -4,10 +4,10 @@ import matplotlib.animation as animation
 from utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
 from utils.saliency import run_saliency_suite
 
-class SARSADrone:
+
+class QLearningDrone:
     def __init__(self, bw_map, package_pos, delivery_pos,
                  alpha=0.1, gamma=0.95, epsilon=1.0):
-
         self.bw_map = bw_map
         self.package_pos = package_pos
         self.delivery_pos = delivery_pos
@@ -36,76 +36,75 @@ class SARSADrone:
     def step_env(self, state, action_idx, prev_state, visit_counts):
         r, c, has_pkg = state
         dr, dc = self.actions[action_idx]
-
         nr, nc = r + dr, c + dc
+
         invalid_move = False
         if (nr, nc) not in self.lane_coords:
             nr, nc = r, c
             invalid_move = True
 
         new_has_pkg = has_pkg
-        reward = -1.0  # base step penalty
+        reward = -1.0
 
-        # Invalid move penalty
         if invalid_move:
             reward -= 5.0
 
-        # Multi-visit penalty
+        # Slightly reduced penalties (Q-learning is sensitive)
         visits = visit_counts.get((nr, nc), 0)
-        reward -= 0.5 * visits
+        reward -= 0.3 * visits
 
-        # Backtracking penalty
         if prev_state is not None and (nr, nc) == (prev_state[0], prev_state[1]):
-            reward -= 3.0
+            reward -= 5.0
 
-        # Package pickup reward
         if not has_pkg and (nr, nc) == self.package_pos:
             new_has_pkg = True
-            reward += 100
+            reward += 300
 
-        # Delivery reward
         elif has_pkg and (nr, nc) == self.delivery_pos:
-            reward += 200
+            reward += 1000
 
-        return (nr, nc, new_has_pkg), reward
+        done = new_has_pkg and (nr, nc) == self.delivery_pos
 
-    def train_lambda_backward(self, start_pos, lmbda=0.9, episodes=1000, max_steps=500):
-        print("Training SARSA(lambda) backward-view...")
+        return (nr, nc, new_has_pkg), reward, done
+
+    def train(self, start_pos, episodes=20000, max_steps=1200):
+        print("Training Q-Learning agent...")
 
         for ep in range(episodes):
-            E = {}  # eligibility traces
             state = (start_pos[0], start_pos[1], False)
-            action = self.choose_action(state)
+            prev_state = None
             visit_counts = {}
 
             for step in range(max_steps):
                 visit_counts[(state[0], state[1])] = visit_counts.get((state[0], state[1]), 0) + 1
-                next_state, reward = self.step_env(state, action, None, visit_counts)
-                next_action = self.choose_action(next_state)
 
-                Q_s = self.get_Q(state)
-                Q_next = self.get_Q(next_state)
-                delta = reward + self.gamma * Q_next[next_action] - Q_s[action]
+                action = self.choose_action(state)
+                next_state, reward, done = self.step_env(state, action, prev_state, visit_counts)
 
-                if state not in E:
-                    E[state] = np.zeros(len(self.actions))
-                E[state][action] += 1
+                # --- Q-learning update ---
+                q = self.get_Q(state)
+                q_next = self.get_Q(next_state)
 
-                # Update all Q values
-                for s in list(E.keys()):
-                    Q_vals = self.get_Q(s)
-                    Q_vals += self.alpha * delta * E[s]
-                    E[s] *= self.gamma * lmbda  # decay trace
+                if done:
+                    td_target = reward
+                else:
+                    td_target = reward + self.gamma * np.max(q_next)
 
+                q[action] += self.alpha * (td_target - q[action])
+
+                prev_state = state
                 state = next_state
-                action = next_action
 
-                if state[2] and (state[0], state[1]) == self.delivery_pos:
+                if done:
                     break
 
-            self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
+            # epsilon decay
+            if ep > episodes * 0.5:
+                self.epsilon = max(self.epsilon * (self.epsilon_decay*0.9), self.epsilon_min)
+            else:
+                self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
 
-            if ep % 50 == 0:
+            if ep % 1000 == 0:
                 print(f"Episode {ep}, epsilon={self.epsilon:.3f}")
 
         print("Training complete!")
@@ -114,7 +113,6 @@ class SARSADrone:
         return self.actions[np.argmax(self.get_Q(state))]
 
 
-# --- MAIN ---
 if __name__ == "__main__":
     grid_size = (12, 12)
     pg = PipeGrid(*grid_size)
@@ -126,8 +124,8 @@ if __name__ == "__main__":
     package_pos = lane_coords[len(lane_coords)//2]
     delivery_pos = lane_coords[-1]
 
-    drone = SARSADrone(bw_map, package_pos, delivery_pos)
-    drone.train_lambda_backward(start_pos, episodes=2000)
+    drone = QLearningDrone(bw_map, package_pos, delivery_pos)
+    drone.train(start_pos, episodes=20000)
 
     # --- RUN POLICY ---
     curr_state = (start_pos[0], start_pos[1], False)
@@ -152,13 +150,15 @@ if __name__ == "__main__":
             print(f"Delivered in {len(path)} steps!")
             break
 
+    # --- RUN SALIENCY SUITE ---
     run_saliency_suite(drone, path, bw_map, show=True)
 
-    # --- VISUALIZATION ---
+    # vizzzz 
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.imshow(bw_map, cmap="gray")
     ax.plot(package_pos[1], package_pos[0], 'ys', markersize=10)
     ax.plot(delivery_pos[1], delivery_pos[0], 'gx', markersize=12)
+
     drone_mark, = ax.plot([], [], 'ro', markersize=7)
 
     def update(frame):
@@ -168,5 +168,6 @@ if __name__ == "__main__":
         return drone_mark,
 
     ani = animation.FuncAnimation(fig, update, frames=len(path), interval=60)
-    ani.save("sarsa_backward.gif", writer="pillow")
+    ani.save("q_learning_drone.gif", writer="pillow")
+
     plt.show()

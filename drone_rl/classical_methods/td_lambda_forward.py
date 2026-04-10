@@ -4,6 +4,7 @@ import matplotlib.animation as animation
 from collections import deque
 from tqdm import tqdm
 from utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
+from utils.saliency import run_saliency_suite
 
 class DeliveryDroneTDLambdaForward:
     def __init__(self, bw_map, start_pos, package_pos, delivery_pos,
@@ -214,6 +215,8 @@ if __name__=="__main__":
 
         path.append(state)
         visited.add(state)
+
+    run_saliency_suite(drone, path, bw_map, show=True)
 
     # --- ANIMATION ---
     fig, ax = plt.subplots(figsize=(8,8))

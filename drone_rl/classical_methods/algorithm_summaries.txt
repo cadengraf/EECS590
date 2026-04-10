@@ -1,0 +1,85 @@
+Algorithm Summaries for Classical RL Scripts
+
+This document gives short, editable descriptions of the main algorithms used in this folder. 
+The wording is intentionally simple so it can be rewritten later in a report, slide deck, or paper.
+
+
+Q_learning.py
+
+Q-learning is an off-policy temporal-difference control method. It learns an action-value table Q(s, a) and updates each state-action pair toward 
+the reward plus the best possible future Q-value in the next state, even if the agent did not actually take that best next action. 
+In this implementation, the drone explores with epsilon-greedy action selection, receives penalties for invalid moves, 
+repeated visits, and backtracking, and receives large rewards for picking up the package and delivering it. 
+Because it uses the maximum next-state value in the update rule, it tries to learn an optimal greedy policy over time.
+
+
+monte_carlo.py
+
+Monte Carlo control learns from complete episodes instead of updating after every single step. 
+The agent stores the sequence of visited states, actions, and rewards for an episode, then works backward at the end to compute returns. 
+This script uses first-visit Monte Carlo updates, meaning it only updates a state-action pair the first time that 
+pair appears in an episode when scanning backward. Compared with TD methods, Monte Carlo waits longer for updates, 
+but it uses the full observed return rather than a one-step estimate. In this version, extra penalties are used to reduce loops and backtracking.
+
+
+sarsa.py
+
+SARSA is an on-policy temporal-difference method. 
+It updates Q(s, a) using the reward plus the Q-value of the next state and the next action that the current policy actually chooses. 
+This means learning is tied closely to the behavior policy, including exploratory moves. 
+In this script, the drone uses epsilon-greedy exploration and learns from immediate step-by-step updates while being penalized for invalid moves, 
+revisits, and backtracking. Because it is on-policy, SARSA often learns safer behavior than Q-learning when exploration matters.
+
+
+sarsa_backward.py
+
+This file implements backward-view SARSA(lambda), which extends SARSA with eligibility traces. 
+Instead of updating only the most recent state-action pair, the algorithm keeps a trace for recently visited pairs and gives them credit when new rewards arrive. 
+The trace decays over time using gamma and lambda, so more recent decisions receive stronger updates. 
+In practice, this helps information move backward through a trajectory faster than plain one-step SARSA. 
+This version still uses a Q-table and on-policy action selection, but it spreads each TD error across multiple past steps.
+
+
+sarsa_n.py
+
+This script implements n-step SARSA. Rather than updating from only one reward ahead, it waits for multiple future rewards and builds an 
+n-step return before applying the update. That gives a middle ground between one-step TD methods and full-episode Monte Carlo methods. 
+If n is small, learning stays local and responsive; if n is larger, updates use more delayed reward information. 
+In this implementation, the drone still learns a Q-table with epsilon-greedy exploration, but its updates are based on a short rollout window 
+instead of a single transition.
+
+
+sarsa_lambda_forward.py
+
+This file implements forward-view SARSA(lambda). Instead of using backward eligibility traces, it explicitly builds lambda-returns from a weighted combination 
+of different n-step returns across an episode. That makes it closer to the theoretical definition of SARSA(lambda), although it is usually more 
+expensive because the episode must be stored and processed. In this version, the reward design also includes loop penalties and a small directional 
+shaping bonus based on nearby unvisited cells. The goal is to combine on-policy learning with richer multi-step credit assignment.
+
+
+tdn_forward.py
+
+This script uses forward-view TD(n) for state-value learning rather than action-value learning. 
+Instead of learning Q(s, a), it learns a value function V(s) for each state and then chooses actions by looking at the value of successor states. 
+The update uses an n-step return: a short sequence of future rewards plus a bootstrap estimate from a later state. 
+This version also uses optimistic value initialization and reward shaping based on movement toward the current target, which helps the drone explore 
+and learn faster. It is useful when we want to estimate how good a state is without maintaining a separate value for every action.
+
+
+td_backward.py
+
+Backward-view TD(lambda) with eligibility traces. 
+It learns a state-value function V(s) and updates many recently visited states at once using decaying traces. 
+The main idea is that when a reward signal is observed, not only the current state but also a chain of earlier states should receive some credit. 
+This version uses optimistic initialization, strong terminal rewards, and a BFS-based action selection rule during evaluation to guide the drone toward the 
+package and delivery location. It is basically a value-based multi-step TD method that spreads updates backward efficiently.
+
+
+td_lambda_forward.py
+
+This script implements forward-view TD(lambda) for state-value learning. It stores a trajectory, computes truncated lambda-returns from a weighted 
+combination of multi-step returns, and updates V(s) using those targets. Compared with the backward-view version, this one follows the forward 
+definition more directly, but it can be more computationally expensive because it processes whole trajectories. 
+The implementation uses optimistic initialization, strong pickup and delivery rewards, and an action-selection rule that combines learned value 
+estimates with BFS distance information. This makes the learned value function easier to turn into a practical navigation policy.
+
