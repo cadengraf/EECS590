@@ -22,62 +22,129 @@
     "stage_exploration_fraction": 0.4,
     "curriculum": [
         {
-            "name": "stage_1",
+            "name": "s1",
             "grid_size": [
                 4,
                 4
             ],
-            "max_steps": 120,
-            "timesteps": 150000,
+            "max_steps": 250,
+            "timesteps": 250000,
+            "map_seed": 101,
+            "randomize_package": false,
+            "randomize_delivery": false,
+            "placement_strategy": "distance_bands",
+            "package_min_dist": 5,
+            "package_max_dist": 10,
+            "delivery_min_dist": 4,
+            "delivery_max_dist": 9,
+            "delivery_min_start_dist": 8,
             "exploration_initial_eps": 1.0,
             "exploration_fraction": 0.35
         },
         {
-            "name": "stage_2",
+            "name": "s2",
             "grid_size": [
                 6,
                 6
             ],
-            "max_steps": 250,
-            "timesteps": 250000,
+            "max_steps": 400,
+            "timesteps": 350000,
+            "map_seed": 202,
+            "randomize_package": false,
+            "randomize_delivery": false,
+            "placement_strategy": "distance_bands",
+            "package_min_dist": 8,
+            "package_max_dist": 16,
+            "delivery_min_dist": 7,
+            "delivery_max_dist": 16,
+            "delivery_min_start_dist": 14,
             "exploration_initial_eps": 0.8,
             "exploration_fraction": 0.4
         },
         {
-            "name": "stage_3",
+            "name": "s3",
+            "grid_size": [
+                6,
+                6
+            ],
+            "max_steps": 400,
+            "timesteps": 750000,
+            "map_seed": 202,
+            "randomize_package": true,
+            "randomize_delivery": false,
+            "placement_strategy": "distance_bands",
+            "package_min_dist": 8,
+            "package_max_dist": 16,
+            "delivery_min_dist": 7,
+            "delivery_max_dist": 16,
+            "delivery_min_start_dist": 14,
+            "exploration_initial_eps": 0.5,
+            "exploration_fraction": 0.4,
+            "min_timesteps_before_promotion": 100000
+        },
+        {
+            "name": "s4",
             "grid_size": [
                 8,
                 8
             ],
-            "max_steps": 500,
-            "timesteps": 400000,
+            "max_steps": 900,
+            "timesteps": 1250000,
+            "map_seed": 303,
+            "randomize_package": true,
+            "randomize_delivery": false,
+            "placement_strategy": "distance_bands",
+            "package_min_dist": 10,
+            "package_max_dist": 20,
+            "delivery_min_dist": 8,
+            "delivery_max_dist": 18,
+            "delivery_min_start_dist": 16,
             "exploration_initial_eps": 0.8,
-            "exploration_fraction": 0.45
+            "exploration_fraction": 0.45,
+            "min_timesteps_before_promotion": 150000
         },
         {
-            "name": "stage_4",
+            "name": "s5",
             "grid_size": [
                 10,
                 10
             ],
-            "max_steps": 1000,
-            "timesteps": 550000,
+            "max_steps": 3000,
+            "timesteps": 2000000,
+            "map_seed": 404,
+            "randomize_package": true,
+            "randomize_delivery": true,
+            "placement_strategy": "distance_bands",
+            "package_min_dist": 14,
+            "package_max_dist": 28,
+            "delivery_min_dist": 12,
+            "delivery_max_dist": 28,
+            "delivery_min_start_dist": 22,
             "exploration_initial_eps": 1.0,
             "exploration_fraction": 0.6,
-            "min_timesteps_before_promotion": 75000
+            "min_timesteps_before_promotion": 200000
         },
         {
-            "name": "stage_5",
+            "name": "s6",
             "grid_size": [
                 12,
                 12
             ],
-            "max_steps": 2000,
-            "timesteps": 750000,
+            "max_steps": 6000,
+            "timesteps": 2500000,
+            "map_seed": 505,
+            "randomize_package": true,
+            "randomize_delivery": true,
+            "placement_strategy": "distance_bands",
+            "package_min_dist": 18,
+            "package_max_dist": 36,
+            "delivery_min_dist": 16,
+            "delivery_max_dist": 36,
+            "delivery_min_start_dist": 28,
             "exploration_initial_eps": 1.0,
             "exploration_fraction": 0.6,
-            "min_timesteps_before_promotion": 100000
+            "min_timesteps_before_promotion": 250000
         }
     ],
-    "timesteps": 2100000
+    "timesteps": 7100000
 }

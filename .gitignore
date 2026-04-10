@@ -1,3 +1,7 @@
 reinforcement_learning/
 rl/
 *.pkl
+.codex
+*.pt
+*.zip
+*.pyc

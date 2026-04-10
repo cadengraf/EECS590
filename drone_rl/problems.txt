@@ -1,0 +1,5 @@
+When I picked DQN for my deep reinforcement learning algorithm I had the idea that it would be best because of the Q-Values. Since it is a grid based world 
+and it should be able to learn the Q-Values to get the package and deliver it. However, I ran into the problem when the package and the delivery zone were 
+randomized then it struggled to find the package zone or delivery area. I was able to get 25% accuracy across a series of runs with DQN but it only 
+truly worked when it was fixed scenarios which makes sense. Algorithms that I am currently implementing is PPO so I can try MAPPO when I add more drones to 
+my env. I also want to try A2C and see if I get good results. 
