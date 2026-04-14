@@ -23,6 +23,9 @@ cd drone_rl
 `drone_rl/classical_methods/`
 : Classical RL and planning baselines, plus saliency utilities and visual outputs.
 
+`drone_rl/classical_methods/utils/replay.py`
+: A simple reusable replay buffer for classical trainers, implemented as a fixed-size circular buffer.
+
 `drone_rl/envs/`
 : Shared drone delivery environment used by the Deep RL experiments.
 
@@ -55,17 +58,38 @@ These scripts generally:
 - build a binary lane map from the pipe/grid utilities,
 - define start, package, and delivery positions,
 - train an agent with task-specific shaping rewards,
+- store experience tuples `(state, action, reward, next_state, done)` in a simple replay buffer during training,
 - roll out the learned policy,
 - generate a GIF or visualization of the resulting path,
 - and run saliency analysis after training.
 
 If you want short editable descriptions of these algorithms, see [algorithm_summaries.txt](/home/megrad/Documents/GitHub/EECS590/drone_rl/classical_methods/algorithm_summaries.txt).
 
+### Replay Buffer
+
+The classical trainers now share a small replay buffer implementation in [replay.py](/home/megrad/Documents/GitHub/EECS590/drone_rl/classical_methods/utils/replay.py).
+
+The replay buffer: 
+
+- it stores experiences as `(state, action, reward, next_state, done)`,
+- it uses a fixed capacity to keep memory bounded,
+- it overwrites old entries in a circular manner when full,
+- and it supports random batch sampling.
+
+This replay buffer is currently implemented in:
+
+- `Q_learning.py`
+- `sarsa.py`
+- `monte_carlo.py`
+- `sarsa_n.py`
+
+Each of these trainers creates `self.replay_buffer` inside the agent class and appends one transition per environment step. This does not change the training update rules yet; it just makes stored experience available for inspection, debugging, or future replay-based experiments.
+
 ## Deep RL Methods
 
 Two main Deep RL approaches are included:
 
-- `train_dqn.py`: DQN training using Stable-Baselines3 with curriculum stages, stage evaluation, replay-buffer resets between harder maps when needed, and periodic stage checkpoint saves.
+- `train_dqn.py`: DQN training using Stable-Baselines3 with curriculum stages, stage evaluation, and periodic stage checkpoint saves.
 - `ppo.py`: PPO training using Stable-Baselines3 with fixed configuration files, evaluation after training, and optional rollout visualization.
 
 At a high level:
@@ -169,4 +193,3 @@ depending on the training script version used for that experiment.
 - The Deep RL scripts rely on the shared environment in `drone_rl/envs/drone_env.py`.
 - DQN should currently be viewed as the fixed-environment Deep RL baseline.
 - Still working on PPO and will try MAPPO when switch to multiple agents
-
