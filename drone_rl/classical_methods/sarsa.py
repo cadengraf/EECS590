@@ -2,11 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
+from utils.replay import ReplayBuffer
 from utils.saliency import run_saliency_suite
 
 class SARSADrone:
     def __init__(self, bw_map, package_pos, delivery_pos,
-                 alpha=0.1, gamma=0.95, epsilon=1.0):
+                 alpha=0.1, gamma=0.95, epsilon=1.0, replay_capacity=10000):
 
         self.bw_map = bw_map
         self.package_pos = package_pos
@@ -22,6 +23,7 @@ class SARSADrone:
         self.lane_coords = [tuple(p) for p in np.argwhere(bw_map == 1)]
 
         self.Q = {}
+        self.replay_buffer = ReplayBuffer(replay_capacity)
 
     def get_Q(self, state):
         if state not in self.Q:
@@ -81,6 +83,8 @@ class SARSADrone:
 
                 next_state, reward = self.step_env(state, action, prev_state, visit_counts)
                 next_action = self.choose_action(next_state)
+                done = state[2] and (state[0], state[1]) == self.delivery_pos
+                done = done or (next_state[2] and (next_state[0], next_state[1]) == self.delivery_pos)
 
                 Q_s = self.get_Q(state)
                 Q_next = self.get_Q(next_state)
@@ -88,6 +92,7 @@ class SARSADrone:
                 Q_s[action] += self.alpha * (
                     reward + self.gamma * Q_next[next_action] - Q_s[action]
                 )
+                self.replay_buffer.add(state, action, reward, next_state, done)
 
                 prev_state = state
                 state = next_state
@@ -99,7 +104,10 @@ class SARSADrone:
             self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
 
             if ep % 50 == 0:
-                print(f"Episode {ep}, epsilon={self.epsilon:.3f}")
+                print(
+                    f"Episode {ep}, epsilon={self.epsilon:.3f}, "
+                    f"replay_size={len(self.replay_buffer)}"
+                )
 
         print("Training complete!")
 

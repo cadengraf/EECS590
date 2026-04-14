@@ -2,11 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
+from utils.replay import ReplayBuffer
 from utils.saliency import run_saliency_suite
 
 class MonteCarloDrone:
     def __init__(self, bw_map, package_pos, delivery_pos,
-                 alpha=0.1, gamma=0.95, epsilon=1.0):
+                 alpha=0.1, gamma=0.95, epsilon=1.0, replay_capacity=10000):
         self.bw_map = bw_map
         self.package_pos = package_pos
         self.delivery_pos = delivery_pos
@@ -20,7 +21,8 @@ class MonteCarloDrone:
         self.actions = [(-1,0),(1,0),(0,-1),(0,1)]
         self.lane_coords = [tuple(p) for p in np.argwhere(bw_map == 1)]
 
-        self.Q = {}        
+        self.Q = {}
+        self.replay_buffer = ReplayBuffer(replay_capacity)
 
     def get_Q(self, state):
         if state not in self.Q:
@@ -79,11 +81,13 @@ class MonteCarloDrone:
                 visit_counts[(state[0], state[1])] = visit_counts.get((state[0], state[1]), 0) + 1
                 action = self.choose_action(state)
                 next_state, reward = self.step_env(state, action, prev_state, visit_counts)
+                done = next_state[2] and (next_state[0], next_state[1]) == self.delivery_pos
                 episode.append((state, action, reward))
+                self.replay_buffer.add(state, action, reward, next_state, done)
                 prev_state = state
                 state = next_state
 
-                if state[2] and (state[0], state[1]) == self.delivery_pos:
+                if done:
                     break
 
             # --- First-visit Monte Carlo update ---
@@ -103,7 +107,10 @@ class MonteCarloDrone:
                 self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
 
             if ep % 1000 == 0:
-                print(f"Episode {ep}, epsilon={self.epsilon:.3f}")
+                print(
+                    f"Episode {ep}, epsilon={self.epsilon:.3f}, "
+                    f"replay_size={len(self.replay_buffer)}"
+                )
 
         print("Training complete!")
 
