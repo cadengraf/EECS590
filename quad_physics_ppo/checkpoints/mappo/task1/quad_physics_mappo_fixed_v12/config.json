@@ -1,0 +1,1582 @@
+{
+    "num_drones": 2,
+    "max_steps": 300,
+    "print_freq": 20000,
+    "randomize_package": false,
+    "randomize_deliveries": false,
+    "step_penalty": -0.2,
+    "invalid_move_penalty": 20.0,
+    "collision_penalty": 20.0,
+    "revisit_penalty": 0.05,
+    "revisit_penalty_cap": 1.5,
+    "pickup_reward": 150.0,
+    "delivery_reward": 500.0,
+    "team_delivery_bonus": 1000.0,
+    "undelivered_package_penalty": 300.0,
+    "wrong_delivery_penalty": 50.0,
+    "dt": 0.05,
+    "physics_substeps": 8,
+    "max_tilt": 0.3,
+    "linear_drag": 0.85,
+    "attitude_tau": 0.25,
+    "angular_damping": 0.9,
+    "target_altitude": 1.0,
+    "run_name": "quad_physics_mappo_fixed_v12",
+    "seed": 7,
+    "rollout_steps": 1024,
+    "epochs": 6,
+    "minibatch_size": 256,
+    "learning_rate": 0.0003,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.15,
+    "ent_coef": 0.004,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "hidden_size": 128,
+    "progress_print_freq": 10000,
+    "stage_eval_every": 40000,
+    "stage_eval_episodes": 20,
+    "stage_promotion_success_rate": 0.75,
+    "stage_min_timesteps_before_promotion": 80000,
+    "viz_enabled": true,
+    "viz_delay": 0.12,
+    "viz_save_path": "mappo_fixed_quad_rollout.gif",
+    "viz_show": false,
+    "curriculum": [
+        {
+            "name": "s1_short_t_fixed",
+            "map_layout": "t_junction",
+            "stem_length": 4,
+            "branch_left": 1,
+            "branch_right": 1,
+            "map_padding": 1,
+            "max_steps": 120,
+            "timesteps": 180000,
+            "fixed_starts": [
+                [
+                    4,
+                    2
+                ],
+                [
+                    3,
+                    2
+                ]
+            ],
+            "fixed_package": [
+                2,
+                2
+            ],
+            "fixed_deliveries": [
+                [
+                    1,
+                    1
+                ],
+                [
+                    1,
+                    3
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 20000,
+            "min_timesteps_before_promotion": 60000,
+            "promotion_success_rate": 0.9,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s2_wider_t_stem_fixed",
+            "map_layout": "t_junction",
+            "stem_length": 6,
+            "branch_left": 3,
+            "branch_right": 3,
+            "map_padding": 1,
+            "max_steps": 220,
+            "timesteps": 540000,
+            "fixed_starts": [
+                [
+                    6,
+                    4
+                ],
+                [
+                    5,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                3,
+                4
+            ],
+            "fixed_deliveries": [
+                [
+                    2,
+                    4
+                ],
+                [
+                    1,
+                    4
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 80000,
+            "promotion_success_rate": 0.85,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s3_wider_t_near_branch_fixed",
+            "map_layout": "t_junction",
+            "stem_length": 6,
+            "branch_left": 3,
+            "branch_right": 3,
+            "map_padding": 1,
+            "max_steps": 280,
+            "timesteps": 750000,
+            "fixed_starts": [
+                [
+                    6,
+                    4
+                ],
+                [
+                    5,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                2,
+                4
+            ],
+            "fixed_deliveries": [
+                [
+                    1,
+                    3
+                ],
+                [
+                    1,
+                    5
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.75,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s4a_wider_t_branch_near_fixed",
+            "map_layout": "t_junction",
+            "stem_length": 6,
+            "branch_left": 3,
+            "branch_right": 3,
+            "map_padding": 1,
+            "max_steps": 300,
+            "timesteps": 450000,
+            "fixed_starts": [
+                [
+                    6,
+                    4
+                ],
+                [
+                    5,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                3,
+                4
+            ],
+            "fixed_deliveries": [
+                [
+                    1,
+                    3
+                ],
+                [
+                    1,
+                    5
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 80000,
+            "promotion_success_rate": 0.8,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s4b_left_wider_t_branch_mid_fixed",
+            "map_layout": "t_junction",
+            "stem_length": 6,
+            "branch_left": 3,
+            "branch_right": 3,
+            "map_padding": 1,
+            "max_steps": 320,
+            "timesteps": 450000,
+            "fixed_starts": [
+                [
+                    6,
+                    4
+                ],
+                [
+                    5,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                3,
+                4
+            ],
+            "fixed_deliveries": [
+                [
+                    1,
+                    2
+                ],
+                [
+                    1,
+                    5
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 80000,
+            "promotion_success_rate": 0.75,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s4c_right_wider_t_branch_mid_fixed",
+            "map_layout": "t_junction",
+            "stem_length": 6,
+            "branch_left": 3,
+            "branch_right": 3,
+            "map_padding": 1,
+            "max_steps": 320,
+            "timesteps": 450000,
+            "fixed_starts": [
+                [
+                    6,
+                    4
+                ],
+                [
+                    5,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                3,
+                4
+            ],
+            "fixed_deliveries": [
+                [
+                    1,
+                    3
+                ],
+                [
+                    1,
+                    6
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 80000,
+            "promotion_success_rate": 0.75,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s4d_wider_t_branch_mid_fixed",
+            "map_layout": "t_junction",
+            "stem_length": 6,
+            "branch_left": 3,
+            "branch_right": 3,
+            "map_padding": 1,
+            "max_steps": 330,
+            "timesteps": 650000,
+            "fixed_starts": [
+                [
+                    6,
+                    4
+                ],
+                [
+                    5,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                3,
+                4
+            ],
+            "fixed_deliveries": [
+                [
+                    1,
+                    2
+                ],
+                [
+                    1,
+                    6
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.7,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s4e_wider_t_branch_far_fixed",
+            "map_layout": "t_junction",
+            "stem_length": 6,
+            "branch_left": 3,
+            "branch_right": 3,
+            "map_padding": 1,
+            "max_steps": 340,
+            "timesteps": 850000,
+            "fixed_starts": [
+                [
+                    6,
+                    4
+                ],
+                [
+                    5,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                3,
+                4
+            ],
+            "fixed_deliveries": [
+                [
+                    1,
+                    1
+                ],
+                [
+                    1,
+                    7
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 30000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.7,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s5_tiny_pipe_line_fixed",
+            "grid_size": [
+                2,
+                2
+            ],
+            "map_seed": 42,
+            "loop_prob": 0.25,
+            "max_steps": 260,
+            "timesteps": 260000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                2,
+                5
+            ],
+            "fixed_deliveries": [
+                [
+                    2,
+                    6
+                ],
+                [
+                    2,
+                    7
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 80000,
+            "promotion_success_rate": 0.8,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "collision_penalty": 8.0
+        },
+        {
+            "name": "s6_small_pipe_line_fixed",
+            "grid_size": [
+                3,
+                3
+            ],
+            "map_seed": 101,
+            "loop_prob": 0.25,
+            "max_steps": 360,
+            "timesteps": 360000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                2,
+                6
+            ],
+            "fixed_deliveries": [
+                [
+                    2,
+                    8
+                ],
+                [
+                    2,
+                    9
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 90000,
+            "promotion_success_rate": 0.8,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s7_small_pipe_vertical_fixed",
+            "grid_size": [
+                3,
+                3
+            ],
+            "map_seed": 101,
+            "loop_prob": 0.25,
+            "max_steps": 360,
+            "timesteps": 360000,
+            "fixed_starts": [
+                [
+                    2,
+                    8
+                ],
+                [
+                    3,
+                    8
+                ]
+            ],
+            "fixed_package": [
+                4,
+                8
+            ],
+            "fixed_deliveries": [
+                [
+                    5,
+                    8
+                ],
+                [
+                    6,
+                    8
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 90000,
+            "promotion_success_rate": 0.8,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.012,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s8_small_pipe_turn_fixed",
+            "grid_size": [
+                3,
+                3
+            ],
+            "map_seed": 101,
+            "loop_prob": 0.25,
+            "max_steps": 460,
+            "timesteps": 500000,
+            "fixed_starts": [
+                [
+                    2,
+                    6
+                ],
+                [
+                    2,
+                    7
+                ]
+            ],
+            "fixed_package": [
+                2,
+                8
+            ],
+            "fixed_deliveries": [
+                [
+                    4,
+                    8
+                ],
+                [
+                    5,
+                    8
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 90000,
+            "promotion_success_rate": 0.75,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.012,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s9a_small_pipe_rejoin_fixed",
+            "grid_size": [
+                3,
+                3
+            ],
+            "map_seed": 101,
+            "loop_prob": 0.25,
+            "max_steps": 560,
+            "timesteps": 520000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                2,
+                8
+            ],
+            "fixed_deliveries": [
+                [
+                    6,
+                    8
+                ],
+                [
+                    7,
+                    8
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 25000,
+            "min_timesteps_before_promotion": 90000,
+            "promotion_success_rate": 0.75,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s9b_small_pipe_package_step_fixed",
+            "grid_size": [
+                3,
+                3
+            ],
+            "map_seed": 101,
+            "loop_prob": 0.25,
+            "max_steps": 620,
+            "timesteps": 650000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                3,
+                8
+            ],
+            "fixed_deliveries": [
+                [
+                    6,
+                    8
+                ],
+                [
+                    7,
+                    8
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 30000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.7,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s9c_small_pipe_delivery_step_fixed",
+            "grid_size": [
+                3,
+                3
+            ],
+            "map_seed": 101,
+            "loop_prob": 0.25,
+            "max_steps": 760,
+            "timesteps": 760000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                4,
+                8
+            ],
+            "fixed_deliveries": [
+                [
+                    6,
+                    9
+                ],
+                [
+                    7,
+                    9
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 35000,
+            "min_timesteps_before_promotion": 110000,
+            "promotion_success_rate": 0.7,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s9d_small_pipe_fixed",
+            "grid_size": [
+                3,
+                3
+            ],
+            "map_seed": 101,
+            "loop_prob": 0.25,
+            "max_steps": 900,
+            "timesteps": 880000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                4,
+                8
+            ],
+            "fixed_deliveries": [
+                [
+                    8,
+                    13
+                ],
+                [
+                    9,
+                    12
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 40000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.65,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s10a_pipe_4x4_entry_fixed",
+            "grid_size": [
+                4,
+                4
+            ],
+            "map_seed": 202,
+            "loop_prob": 0.3,
+            "max_steps": 900,
+            "timesteps": 520000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                6,
+                3
+            ],
+            "fixed_deliveries": [
+                [
+                    9,
+                    2
+                ],
+                [
+                    10,
+                    3
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 35000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.7,
+            "continue_success_rate": 0.45,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s10b_pipe_4x4_mid_package_fixed",
+            "grid_size": [
+                4,
+                4
+            ],
+            "map_seed": 202,
+            "loop_prob": 0.3,
+            "max_steps": 1000,
+            "timesteps": 650000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                8,
+                3
+            ],
+            "fixed_deliveries": [
+                [
+                    11,
+                    2
+                ],
+                [
+                    12,
+                    3
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 40000,
+            "min_timesteps_before_promotion": 110000,
+            "promotion_success_rate": 0.7,
+            "continue_success_rate": 0.45,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s10c_pipe_4x4_longer_package_fixed",
+            "grid_size": [
+                4,
+                4
+            ],
+            "map_seed": 202,
+            "loop_prob": 0.3,
+            "max_steps": 1150,
+            "timesteps": 760000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                10,
+                3
+            ],
+            "fixed_deliveries": [
+                [
+                    14,
+                    7
+                ],
+                [
+                    15,
+                    6
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 45000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.65,
+            "continue_success_rate": 0.4,
+            "actor_log_std": -0.35,
+            "min_actor_log_std": -0.75,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s10d_pipe_4x4_turn_bridge_fixed",
+            "grid_size": [
+                4,
+                4
+            ],
+            "map_seed": 202,
+            "loop_prob": 0.3,
+            "max_steps": 1300,
+            "timesteps": 780000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                14,
+                3
+            ],
+            "fixed_deliveries": [
+                [
+                    14,
+                    13
+                ],
+                [
+                    15,
+                    12
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 50000,
+            "min_timesteps_before_promotion": 140000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.35,
+            "actor_log_std": -0.2,
+            "min_actor_log_std": -0.9,
+            "ent_coef": 0.014,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s10e_pipe_4x4_fixed",
+            "grid_size": [
+                4,
+                4
+            ],
+            "map_seed": 202,
+            "loop_prob": 0.3,
+            "max_steps": 1700,
+            "timesteps": 1500000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                14,
+                3
+            ],
+            "fixed_deliveries": [
+                [
+                    18,
+                    15
+                ],
+                [
+                    19,
+                    14
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 60000,
+            "min_timesteps_before_promotion": 220000,
+            "promotion_success_rate": 0.55,
+            "continue_success_rate": 0.25,
+            "actor_log_std": -0.15,
+            "min_actor_log_std": -0.95,
+            "ent_coef": 0.016,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s11_pipe_6x6_fixed",
+            "grid_size": [
+                6,
+                6
+            ],
+            "map_seed": 303,
+            "loop_prob": 0.3,
+            "max_steps": 1800,
+            "timesteps": 950000,
+            "package_min_dist": 8,
+            "package_max_dist": 16,
+            "delivery_min_dist": 7,
+            "delivery_max_dist": 18,
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 60000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.65,
+            "continue_success_rate": 0.45,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s12_pipe_8x8_local_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 500,
+            "timesteps": 420000,
+            "fixed_starts": [
+                [
+                    7,
+                    8
+                ],
+                [
+                    8,
+                    8
+                ]
+            ],
+            "fixed_package": [
+                8,
+                9
+            ],
+            "fixed_deliveries": [
+                [
+                    9,
+                    9
+                ],
+                [
+                    7,
+                    9
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 35000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.85,
+            "continue_success_rate": 0.6,
+            "actor_log_std": -0.3,
+            "min_actor_log_std": -0.75,
+            "rollout_steps": 1024,
+            "minibatch_size": 256,
+            "ent_coef": 0.01,
+            "collision_penalty": 8.0,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0
+        },
+        {
+            "name": "s13_pipe_8x8_near_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1200,
+            "timesteps": 850000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                8,
+                9
+            ],
+            "fixed_deliveries": [
+                [
+                    9,
+                    9
+                ],
+                [
+                    7,
+                    9
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 50000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.75,
+            "continue_success_rate": 0.5,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.008
+        },
+        {
+            "name": "s14_pipe_8x8_delivery_west_bridge_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1400,
+            "timesteps": 650000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                8,
+                9
+            ],
+            "fixed_deliveries": [
+                [
+                    8,
+                    8
+                ],
+                [
+                    9,
+                    8
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 55000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.65,
+            "continue_success_rate": 0.4,
+            "actor_log_std": -0.25,
+            "min_actor_log_std": -0.8,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.012
+        },
+        {
+            "name": "s15_pipe_8x8_pkg_west_bridge1_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1600,
+            "timesteps": 750000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                8,
+                8
+            ],
+            "fixed_deliveries": [
+                [
+                    8,
+                    7
+                ],
+                [
+                    9,
+                    8
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 60000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.35,
+            "actor_log_std": -0.25,
+            "min_actor_log_std": -0.8,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.012
+        },
+        {
+            "name": "s16_pipe_8x8_pkg_west_bridge2_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1700,
+            "timesteps": 800000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                8,
+                7
+            ],
+            "fixed_deliveries": [
+                [
+                    8,
+                    5
+                ],
+                [
+                    9,
+                    6
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 65000,
+            "min_timesteps_before_promotion": 140000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.35,
+            "actor_log_std": -0.25,
+            "min_actor_log_std": -0.8,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.012
+        },
+        {
+            "name": "s17_pipe_8x8_pkg_west_bridge3_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1750,
+            "timesteps": 850000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                8,
+                5
+            ],
+            "fixed_deliveries": [
+                [
+                    8,
+                    3
+                ],
+                [
+                    9,
+                    4
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 60000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.35,
+            "actor_log_std": -0.25,
+            "min_actor_log_std": -0.8,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.012
+        },
+        {
+            "name": "s19_pipe_8x8_pkg_west3_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1800,
+            "timesteps": 900000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                8,
+                3
+            ],
+            "fixed_deliveries": [
+                [
+                    11,
+                    3
+                ],
+                [
+                    12,
+                    3
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 70000,
+            "min_timesteps_before_promotion": 100000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.35,
+            "actor_log_std": -0.25,
+            "min_actor_log_std": -0.8,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.012
+        },
+        {
+            "name": "s24_pipe_8x8_mid_short_delivery_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1800,
+            "timesteps": 850000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                11,
+                2
+            ],
+            "fixed_deliveries": [
+                [
+                    14,
+                    3
+                ],
+                [
+                    15,
+                    2
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 70000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.35,
+            "actor_log_std": -0.25,
+            "min_actor_log_std": -0.8,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.012
+        },
+        {
+            "name": "s24b_pipe_8x8_mid_delivery_bridge6_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1850,
+            "timesteps": 700000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                11,
+                2
+            ],
+            "fixed_deliveries": [
+                [
+                    14,
+                    5
+                ],
+                [
+                    15,
+                    4
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 70000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.35,
+            "actor_log_std": -0.25,
+            "min_actor_log_std": -0.8,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s24c_pipe_8x8_mid_delivery_bridge8_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1900,
+            "timesteps": 800000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                11,
+                2
+            ],
+            "fixed_deliveries": [
+                [
+                    14,
+                    7
+                ],
+                [
+                    15,
+                    6
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 75000,
+            "min_timesteps_before_promotion": 140000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.35,
+            "actor_log_std": -0.25,
+            "min_actor_log_std": -0.8,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.01
+        },
+        {
+            "name": "s25_pipe_8x8_mid_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 1900,
+            "timesteps": 950000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                11,
+                2
+            ],
+            "fixed_deliveries": [
+                [
+                    15,
+                    8
+                ],
+                [
+                    14,
+                    9
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 75000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.6,
+            "continue_success_rate": 0.4,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.008
+        },
+        {
+            "name": "s26_pipe_8x8_far_fixed",
+            "grid_size": [
+                8,
+                8
+            ],
+            "map_seed": 404,
+            "loop_prob": 0.35,
+            "max_steps": 2600,
+            "timesteps": 1100000,
+            "fixed_starts": [
+                [
+                    2,
+                    3
+                ],
+                [
+                    2,
+                    4
+                ]
+            ],
+            "fixed_package": [
+                16,
+                3
+            ],
+            "fixed_deliveries": [
+                [
+                    20,
+                    29
+                ],
+                [
+                    21,
+                    28
+                ]
+            ],
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 90000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.55,
+            "continue_success_rate": 0.35,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.008
+        },
+        {
+            "name": "s27_pipe_10x10_fixed",
+            "grid_size": [
+                10,
+                10
+            ],
+            "map_seed": 505,
+            "loop_prob": 0.35,
+            "max_steps": 3200,
+            "timesteps": 1300000,
+            "package_min_dist": 12,
+            "package_max_dist": 30,
+            "delivery_min_dist": 12,
+            "delivery_max_dist": 38,
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 110000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.5,
+            "continue_success_rate": 0.3,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.008
+        },
+        {
+            "name": "s28_pipe_12x12_fixed",
+            "grid_size": [
+                12,
+                12
+            ],
+            "map_seed": 606,
+            "loop_prob": 0.35,
+            "max_steps": 4000,
+            "timesteps": 1500000,
+            "package_min_dist": 14,
+            "package_max_dist": 36,
+            "delivery_min_dist": 14,
+            "delivery_max_dist": 46,
+            "randomize_package": false,
+            "randomize_deliveries": false,
+            "eval_every": 130000,
+            "min_timesteps_before_promotion": 120000,
+            "promotion_success_rate": 0.45,
+            "continue_success_rate": 0.25,
+            "rollout_steps": 2048,
+            "minibatch_size": 512,
+            "ent_coef": 0.006
+        }
+    ],
+    "total_timesteps": 26190000
+}

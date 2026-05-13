@@ -1,17 +1,25 @@
 import json
 import os
+import random
 from collections import deque
 
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 
-from envs.ppo_drone_env import DroneEnv
-from classical_methods.utils.pipes import PipeGrid, PipeOptions, PipeVisualizerBW
-from classical_methods.utils.saliency import run_saliency_suite as render_saliency_suite
-from ppo_config import config
+try:
+    from envs.quadcopter_drone_env import QuadcopterDroneEnv
+    from ppo_config import config
+    from utils.pipes import PipeGrid, PipeOptions, PipeVisualizerBW
+except ImportError:
+    from quad_physics_ppo.envs.quadcopter_drone_env import QuadcopterDroneEnv
+    from quad_physics_ppo.ppo_config import config
+    from quad_physics_ppo.utils.pipes import PipeGrid, PipeOptions, PipeVisualizerBW
 
-ACTION_NAMES = ["up", "down", "left", "right"]
+
+
+ACTION_NAMES = ["roll", "pitch"]
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_DEFAULTS = {
     "randomize_package": False,
     "randomize_delivery": False,
@@ -22,6 +30,14 @@ ENV_DEFAULTS = {
     "backtrack_penalty": 1.0,
     "pickup_reward": 300.0,
     "delivery_reward": 1000.0,
+    "undelivered_package_penalty": 300.0,
+    "dt": 0.05,
+    "physics_substeps": 8,
+    "max_tilt": 0.55,
+    "linear_drag": 0.22,
+    "attitude_tau": 0.18,
+    "angular_damping": 0.82,
+    "target_altitude": 1.0,
 }
 ENV_ATTRS = ("max_steps", *ENV_DEFAULTS)
 MODEL_KEYS = (
@@ -31,6 +47,7 @@ MODEL_KEYS = (
     "gamma",
     "gae_lambda",
     "clip_range",
+    "target_kl",
     "ent_coef",
     "vf_coef",
 )
@@ -69,6 +86,9 @@ class StagePromotionCallback(BaseCallback):
         self.min_timesteps = min_timesteps_before_promotion
         self.save_dir = save_dir
         self.promoted = False
+        self.best_success_rate = -1.0
+        self.best_mean_reward = float("-inf")
+        self.best_model_path = None
 
     def _on_step(self) -> bool:
         if self.num_timesteps % self.eval_every != 0:
@@ -85,10 +105,22 @@ class StagePromotionCallback(BaseCallback):
             f"model_{self.stage_name}_{self.num_timesteps}_steps",
         )
         self.model.save(checkpoint_path)
+        is_best = (
+            metrics["success_rate"] > self.best_success_rate
+            or (
+                metrics["success_rate"] == self.best_success_rate
+                and metrics["mean_reward"] > self.best_mean_reward
+            )
+        )
+        if is_best:
+            self.best_success_rate = metrics["success_rate"]
+            self.best_mean_reward = metrics["mean_reward"]
+            self.best_model_path = os.path.join(self.save_dir, f"model_{self.stage_name}_best")
+            self.model.save(self.best_model_path)
 
-        can_promote = (
-            self.num_timesteps >= self.min_timesteps
-            and metrics["success_rate"] >= self.promotion_threshold
+        perfect_eval = metrics["success_rate"] >= 1.0
+        can_promote = metrics["success_rate"] >= self.promotion_threshold and (
+            perfect_eval or self.num_timesteps >= self.min_timesteps
         )
         if can_promote:
             print(
@@ -102,14 +134,17 @@ class StagePromotionCallback(BaseCallback):
 
 def build_bw_map(grid_size, loop_prob=0.25, seed=None):
     np_state = np.random.get_state()
+    random_state = random.getstate()
     try:
         if seed is not None:
             np.random.seed(seed)
+            random.seed(seed)
         return PipeVisualizerBW(lanes=2, base=3).render(
             PipeGrid(grid_size[0], grid_size[1], loop_prob=loop_prob).to_pipe_ids(PipeOptions())
         )
     finally:
         np.random.set_state(np_state)
+        random.setstate(random_state)
 
 
 def build_straight_line_map(length, padding=1):
@@ -139,9 +174,9 @@ def shortest_path_distances(env, start):
     queue = deque([(start, 0)])
     distances = {start: 0}
     while queue:
-        (r, c), dist = queue.popleft()
+        (row, col), dist = queue.popleft()
         for dr, dc in env.actions:
-            nxt = (r + dr, c + dc)
+            nxt = (row + dr, col + dc)
             if nxt in env.lane_set and nxt not in distances:
                 distances[nxt] = dist + 1
                 queue.append((nxt, dist + 1))
@@ -159,11 +194,11 @@ def positions_in_distance_range(candidates, min_dist, max_dist):
     return [as_position(pos) for pos, dist in candidates if min_dist <= dist <= max_dist]
 
 
-def configure_positions(env, config):
-    if "fixed_start" in config and "fixed_package" in config and "fixed_delivery" in config:
-        env.fixed_start = as_position(config["fixed_start"])
-        env.fixed_package = as_position(config["fixed_package"])
-        env.fixed_delivery = as_position(config["fixed_delivery"])
+def configure_positions(env, stage_config):
+    if "fixed_start" in stage_config and "fixed_package" in stage_config and "fixed_delivery" in stage_config:
+        env.fixed_start = as_position(stage_config["fixed_start"])
+        env.fixed_package = as_position(stage_config["fixed_package"])
+        env.fixed_delivery = as_position(stage_config["fixed_delivery"])
         return
 
     start = as_position(min(env.lane_coords, key=lambda pos: (pos[0] + pos[1], pos[0], pos[1])))
@@ -175,38 +210,37 @@ def configure_positions(env, config):
     pkg = as_position(
         pick_position_by_distance(
             reachable,
-            config["package_min_dist"],
-            config["package_max_dist"],
+            stage_config["package_min_dist"],
+            stage_config["package_max_dist"],
         )
     )
     env.random_package_candidates = positions_in_distance_range(
         reachable,
-        config["package_min_dist"],
-        config["package_max_dist"],
+        stage_config["package_min_dist"],
+        stage_config["package_max_dist"],
     )
 
     pkg_dists = shortest_path_distances(env, pkg)
     delivery_candidates = sorted(
         (
-            (pos, dist) for pos, dist in pkg_dists.items()
-            if (
-                pos not in {start, pkg}
-                and start_dists.get(pos, -1) >= config["delivery_min_start_dist"]
-            )
+            (pos, dist)
+            for pos, dist in pkg_dists.items()
+            if pos not in {start, pkg}
+            and start_dists.get(pos, -1) >= stage_config["delivery_min_start_dist"]
         ),
         key=lambda item: (item[1], start_dists[item[0]], item[0][0], item[0][1]),
     )
     delivery = as_position(
         pick_position_by_distance(
             delivery_candidates,
-            config["delivery_min_dist"],
-            config["delivery_max_dist"],
+            stage_config["delivery_min_dist"],
+            stage_config["delivery_max_dist"],
         )
     )
     env.random_delivery_candidates = positions_in_distance_range(
         delivery_candidates,
-        config["delivery_min_dist"],
-        config["delivery_max_dist"],
+        stage_config["delivery_min_dist"],
+        stage_config["delivery_max_dist"],
     )
 
     env.fixed_start = start
@@ -214,31 +248,35 @@ def configure_positions(env, config):
     env.fixed_delivery = delivery
 
 
-def build_env(config, print_freq=0):
-    map_layout = config.get("map_layout", "pipe")
+def build_env(stage_config, print_freq=0):
+    map_layout = stage_config.get("map_layout", "pipe")
     if map_layout == "straight_line":
         bw_map = build_straight_line_map(
-            config["line_length"],
-            padding=config.get("map_padding", 1),
+            stage_config["line_length"],
+            padding=stage_config.get("map_padding", 1),
         )
     elif map_layout == "t_junction":
         bw_map = build_t_junction_map(
-            stem_length=config["stem_length"],
-            branch_left=config.get("branch_left", 2),
-            branch_right=config.get("branch_right", 2),
-            padding=config.get("map_padding", 1),
+            stem_length=stage_config["stem_length"],
+            branch_left=stage_config.get("branch_left", 2),
+            branch_right=stage_config.get("branch_right", 2),
+            padding=stage_config.get("map_padding", 1),
         )
     else:
-        bw_map = build_bw_map(config["grid_size"], config["loop_prob"], config["map_seed"])
+        bw_map = build_bw_map(
+            stage_config["grid_size"],
+            stage_config["loop_prob"],
+            stage_config["map_seed"],
+        )
 
-    env_kwargs = {key: config.get(key, default) for key, default in ENV_DEFAULTS.items()}
-    env = DroneEnv(
+    env_kwargs = {key: stage_config.get(key, default) for key, default in ENV_DEFAULTS.items()}
+    env = QuadcopterDroneEnv(
         bw_map,
-        max_steps=config["max_steps"],
+        max_steps=stage_config["max_steps"],
         print_freq=print_freq,
         **env_kwargs,
     )
-    configure_positions(env, config)
+    configure_positions(env, stage_config)
     return env
 
 
@@ -247,12 +285,13 @@ def describe_env(tag, env):
         f"{tag}: obs={env.observation_space} grid={env.grid_shape} "
         f"start={env.fixed_start} pkg={env.fixed_package} "
         f"delivery={env.fixed_delivery} lanes={len(env.lane_coords)} "
-        f"rand_pkg={env.randomize_package} rand_del={env.randomize_delivery}"
+        f"rand_pkg={env.randomize_package} rand_del={env.randomize_delivery} "
+        f"dt={env.dt} substeps={env.physics_substeps} max_tilt={env.max_tilt}"
     )
 
 
 def clone_env(env):
-    cloned = DroneEnv(env.bw_map.copy(), **{attr: getattr(env, attr) for attr in ENV_ATTRS})
+    cloned = QuadcopterDroneEnv(env.bw_map.copy(), **{attr: getattr(env, attr) for attr in ENV_ATTRS})
     cloned.fixed_start = env.fixed_start
     cloned.fixed_package = env.fixed_package
     cloned.fixed_delivery = env.fixed_delivery
@@ -266,56 +305,6 @@ def is_delivery_success(env, done):
         done
         and tuple(env.state[:2]) == tuple(env.fixed_delivery)
         and bool(env.state[2])
-    )
-
-
-def _state_to_obs(env, state):
-    prev_state = env.state
-    env.state = (state[0], state[1], int(state[2]))
-    try:
-        return env._get_obs()
-    finally:
-        env.state = prev_state
-
-
-def _collect_policy_path(model, src_env):
-    env, frames = rollout_policy(model, src_env)
-    path = [tuple(frame["state"]) for frame in frames]
-    return env, path
-
-
-def run_saliency_suite(model, src_env, show=True):
-    import torch
-
-    rollout_env, path = _collect_policy_path(model, src_env)
-
-    class SaliencyPPOAdapter:
-        def __init__(self, sb3_model, env):
-            self.actions = env.actions
-            self.lane_coords = env.lane_coords
-            self.package_pos = env.fixed_package
-            self.delivery_pos = env.fixed_delivery
-            self.Q = {}
-
-            with torch.no_grad():
-                for r, c in env.lane_coords:
-                    for has_pkg in (False, True):
-                        state = (r, c, has_pkg)
-                        obs = _state_to_obs(env, state)
-                        obs_tensor = torch.as_tensor(
-                            obs[None],
-                            dtype=torch.float32,
-                            device=sb3_model.device,
-                        )
-                        dist = sb3_model.policy.get_distribution(obs_tensor)
-                        action_scores = dist.distribution.probs.cpu().numpy()[0]
-                        self.Q[state] = action_scores.copy()
-
-    render_saliency_suite(
-        SaliencyPPOAdapter(model, rollout_env),
-        path,
-        rollout_env.bw_map,
-        show=show,
     )
 
 
@@ -349,39 +338,31 @@ def rollout_once(model, src_env, seed=None):
 
     obs, _ = env.reset(seed=seed)
     total_reward = 0.0
-    frames = [{
-        "step": 0,
-        "action": None,
-        "reward": 0.0,
-        "total_reward": 0.0,
-        "state": tuple(env.state),
-        "trajectory": [(env.state[0], env.state[1])],
-        "done": False,
-        "truncated": False,
-        "delivered": False,
-        "seed": seed,
-    }]
-    trajectory = [(env.state[0], env.state[1])]
+    frames = []
     done = truncated = False
 
-    while not (done or truncated):
+    while True:
+        frames.append(
+            {
+                "step": env.current_step,
+                "action": None if env.last_action is None else env.last_action.copy(),
+                "reward": 0.0,
+                "total_reward": float(total_reward),
+                "state": tuple(env.state),
+                "pos": env.pos.copy(),
+                "vel": env.vel.copy(),
+                "angles": env.angles.copy(),
+                "done": bool(done),
+                "truncated": bool(truncated),
+                "delivered": bool(is_delivery_success(env, done)),
+                "seed": seed,
+            }
+        )
+        if done or truncated:
+            break
         action, _ = model.predict(obs, deterministic=True)
         obs, reward, done, truncated, _ = env.step(action)
         total_reward += reward
-        delivered = is_delivery_success(env, done)
-        trajectory.append((env.state[0], env.state[1]))
-        frames.append({
-            "step": len(trajectory) - 1,
-            "action": int(action),
-            "reward": float(reward),
-            "total_reward": float(total_reward),
-            "state": tuple(env.state),
-            "trajectory": trajectory.copy(),
-            "done": bool(done),
-            "truncated": bool(truncated),
-            "delivered": bool(delivered),
-            "seed": seed,
-        })
 
     return env, frames
 
@@ -400,29 +381,70 @@ def rollout_policy(model, src_env, n_trials=None):
     return fallback
 
 
+def draw_quad_top(ax, pos, angles, color):
+    roll, pitch, _ = angles
+    center = np.array([pos[1], pos[0]], dtype=np.float32)
+    body = 0.32
+    tilt = np.array([-roll, pitch], dtype=np.float32)
+    tilt_norm = float(np.linalg.norm(tilt))
+    if tilt_norm > 1e-6:
+        tilt_dir = tilt / tilt_norm
+    else:
+        tilt_dir = np.array([0.0, 0.0], dtype=np.float32)
+    tilt_shift = tilt_dir * min(tilt_norm, 0.65) * 0.18
+    arms = (
+        (np.array([-body, 0.0]), np.array([body, 0.0])),
+        (np.array([0.0, -body]), np.array([0.0, body])),
+    )
+    for start, end in arms:
+        ax.plot(
+            [center[0] + start[0], center[0] + end[0]],
+            [center[1] + start[1], center[1] + end[1]],
+            color="#111111",
+            linewidth=2.0,
+            zorder=8,
+        )
+    for offset in (np.array([-body, 0.0]), np.array([body, 0.0]), np.array([0.0, -body]), np.array([0.0, body])):
+        rotor = center + offset + tilt_shift
+        frontness = float(np.dot(offset, tilt_dir)) if tilt_norm > 1e-6 else 0.0
+        rotor_size = 34 - 10 * frontness
+        ax.scatter(rotor[0], rotor[1], s=rotor_size, color=color, edgecolor="#111111", linewidth=0.8, zorder=9)
+    if tilt_norm > 0.03:
+        nose = center + tilt_dir * 0.48
+        ax.annotate(
+            "",
+            xy=(nose[0], nose[1]),
+            xytext=(center[0], center[1]),
+            arrowprops={"arrowstyle": "-|>", "color": "#111111", "lw": 1.6},
+            zorder=11,
+        )
+    ax.scatter(center[0], center[1], s=64, color=color, edgecolor="#111111", linewidth=1.0, zorder=10)
+
+
+def format_action(action):
+    if action is None:
+        return "-"
+    roll_cmd, pitch_cmd = np.asarray(action, dtype=np.float32)
+    return f"roll={roll_cmd:+.2f}, pitch={pitch_cmd:+.2f}"
+
+
 def draw_rollout_frame(ax_g, ax_i, env, frame):
+    import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap
 
     cmap = ListedColormap(["#1a1a1a", "#f1efe8"])
-    action = frame["action"]
-    reward = frame["reward"]
-    total_reward = frame["total_reward"]
-    r, c, has_pkg = frame["state"]
+    row, col, has_pkg = frame["state"]
+    pos = frame["pos"]
+    vel = frame["vel"]
+    angles = frame["angles"]
 
     ax_g.clear()
     ax_i.clear()
-    ax_g.imshow(env.bw_map, cmap=cmap, origin="upper", vmin=0, vmax=1)
-    ax_g.set(xticks=[], yticks=[], title=f"Policy Rollout | Step {frame['step']}")
 
-    trajectory = frame["trajectory"]
-    if len(trajectory) > 1:
-        ax_g.plot(
-            [pos[1] for pos in trajectory],
-            [pos[0] for pos in trajectory],
-            color="#3f88c5",
-            linewidth=2.0,
-            alpha=0.8,
-        )
+    ax_g.imshow(env.bw_map, cmap=cmap, origin="upper", vmin=0, vmax=1)
+    ax_g.set(xticks=[], yticks=[], title=f"Quad PPO Rollout | Step {frame['step']}")
+    ax_g.set_xlim(-0.5, env.grid_shape[1] - 0.5)
+    ax_g.set_ylim(env.grid_shape[0] - 0.5, -0.5)
 
     sr, sc = env.fixed_start
     pr, pc = env.fixed_package
@@ -442,24 +464,24 @@ def draw_rollout_frame(ax_g, ax_i, env, frame):
         drone_color = "#ff7f11"
     else:
         drone_color = "#118ab2"
-    ax_g.scatter(c, r, s=140, color=drone_color, zorder=6)
+
+    draw_quad_top(ax_g, pos, angles, drone_color)
+    ax_g.scatter(col, row, s=35, color="#ffffff", edgecolor="#111111", zorder=12)
 
     ax_i.set(xlim=(0, 1), ylim=(0, 1))
     ax_i.axis("off")
-    ax_i.text(0.5, 0.96, "Rollout Info", ha="center", va="top", fontsize=14, fontweight="bold")
-    goal = env.fixed_delivery if has_pkg else env.fixed_package
-    action_name = "-" if action is None else ACTION_NAMES[action]
+    action_name = format_action(frame["action"])
+    roll, pitch, _ = angles
     lines = [
         ("action", action_name),
-        ("step reward", f"{reward:+.2f}"),
-        ("total reward", f"{total_reward:+.2f}"),
+        ("total reward", f"{frame['total_reward']:+.2f}"),
         ("seed", "-" if frame["seed"] is None else str(frame["seed"])),
-        ("position", f"({r}, {c})"),
+        ("cell", f"({row}, {col})"),
+        ("position", f"({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})"),
+        ("velocity", f"({vel[0]:.2f}, {vel[1]:.2f}, {vel[2]:.2f})"),
+        ("roll/pitch", f"({roll:.2f}, {pitch:.2f})"),
         ("carrying", "yes" if has_pkg else "no"),
-        ("goal", str(goal)),
-        ("start", str(env.fixed_start)),
-        ("package", str(env.fixed_package)),
-        ("delivery", str(env.fixed_delivery)),
+        ("goal", str(env.fixed_delivery if has_pkg else env.fixed_package)),
         (
             "status",
             "delivered"
@@ -471,17 +493,40 @@ def draw_rollout_frame(ax_g, ax_i, env, frame):
             else "running",
         ),
     ]
-    for y, (key, value) in zip(np.linspace(0.86, 0.01, len(lines)), lines):
+    ax_i.text(0.5, 0.96, "Quad State", ha="center", va="top", fontsize=14, fontweight="bold")
+    for y, (key, value) in zip(np.linspace(0.86, 0.08, len(lines)), lines):
         ax_i.text(0.08, y, key, ha="left", va="top", fontsize=10, color="#666")
         ax_i.text(0.92, y, value, ha="right", va="top", fontsize=10, color="#111")
+    plt.tight_layout(pad=1.4)
 
 
-def visualize_trained_policy(model, src_env, delay=0.12, save_path=None):
+def save_rollout_images(fig, ax_g, ax_i, env, frames, image_dir):
+    os.makedirs(image_dir, exist_ok=True)
+    frame_indices = sorted(
+        set(
+            [
+                0,
+                len(frames) // 3,
+                (2 * len(frames)) // 3,
+                len(frames) - 1,
+            ]
+        )
+    )
+    for frame_idx in frame_indices:
+        draw_rollout_frame(ax_g, ax_i, env, frames[frame_idx])
+        path = os.path.join(image_dir, f"quad_rollout_step_{frames[frame_idx]['step']:04d}.png")
+        fig.savefig(path, dpi=160)
+    print(f"Saved rollout images -> {image_dir}")
+
+
+def visualize_trained_policy(model, src_env, delay=0.12, save_path=None, image_dir=None):
     import matplotlib.pyplot as plt
 
     env, frames = rollout_policy(model, src_env)
     fig, (ax_g, ax_i) = plt.subplots(1, 2, figsize=(13, 6), gridspec_kw={"width_ratios": [2.2, 1]})
-    fig.tight_layout(pad=2.0)
+
+    if image_dir is not None:
+        save_rollout_images(fig, ax_g, ax_i, env, frames, image_dir)
 
     if save_path is not None:
         from matplotlib.animation import FuncAnimation
@@ -489,14 +534,10 @@ def visualize_trained_policy(model, src_env, delay=0.12, save_path=None):
         def update(frame_idx):
             draw_rollout_frame(ax_g, ax_i, env, frames[frame_idx])
 
-        anim = FuncAnimation(
-            fig,
-            update,
-            frames=len(frames),
-            interval=delay * 1000,
-            repeat=False,
-        )
-        anim.save(save_path, writer="ffmpeg")
+        anim = FuncAnimation(fig, update, frames=len(frames), interval=delay * 1000, repeat=False)
+        writer = "pillow" if save_path.lower().endswith(".gif") else "ffmpeg"
+        anim.save(save_path, writer=writer)
+        print(f"Saved rollout animation -> {save_path}")
         plt.close(fig)
         return
 
@@ -510,12 +551,13 @@ def visualize_trained_policy(model, src_env, delay=0.12, save_path=None):
     plt.show()
 
 
-def make_model(env):
+def make_model(env, model_config=None):
+    model_config = config if model_config is None else model_config
     return PPO(
         "MlpPolicy",
         env,
-        **{key: config[key] for key in MODEL_KEYS},
-        policy_kwargs={"net_arch": config["net_arch"]},
+        **{key: model_config.get(key, config[key]) for key in MODEL_KEYS},
+        policy_kwargs={"net_arch": model_config.get("net_arch", config["net_arch"])},
         verbose=0,
         device="cpu",
     )
@@ -535,10 +577,7 @@ def make_promotion_callback(stage, stage_env, save_dir):
         source_env=stage_env,
         eval_every=stage.get("eval_every", config["stage_eval_every"]),
         n_eval_episodes=stage.get("eval_episodes", config["stage_eval_episodes"]),
-        promotion_threshold=stage.get(
-            "promotion_success_rate",
-            config["stage_promotion_success_rate"],
-        ),
+        promotion_threshold=stage.get("promotion_success_rate", config["stage_promotion_success_rate"]),
         min_timesteps_before_promotion=stage.get(
             "min_timesteps_before_promotion",
             config["stage_min_timesteps_before_promotion"],
@@ -548,7 +587,7 @@ def make_promotion_callback(stage, stage_env, save_dir):
 
 
 def main():
-    save_dir = os.path.join("checkpoints", "ppo", "task1", config["run_name"])
+    save_dir = os.path.join(BASE_DIR, "checkpoints", "ppo", "task1", config["run_name"])
     os.makedirs(save_dir, exist_ok=True)
 
     with open(os.path.join(save_dir, "config.json"), "w") as f:
@@ -558,8 +597,7 @@ def main():
     env = build_env(first_stage, print_freq=config["env_print_freq"])
     describe_env("Initial", env)
 
-    model = make_model(env)
-
+    model = None
     final_stage_env = env
     total_stages = len(config["curriculum"])
     for stage_idx, stage in enumerate(config["curriculum"], start=1):
@@ -569,7 +607,12 @@ def main():
 
         print(f"\n=== Stage {stage_idx}/{total_stages}: {stage['name']} ({stage_mode(stage)}) ===")
         describe_env("Stage", stage_env)
-        model.set_env(stage_env)
+        previous_model = model
+        model = make_model(stage_env, stage_config)
+        if previous_model is not None:
+            model.set_parameters(previous_model.get_parameters(), exact_match=False)
+        pre_stage_path = os.path.join(save_dir, f"model_{stage['name']}_pre_stage")
+        model.save(pre_stage_path)
         promotion_cb = make_promotion_callback(stage, stage_env, save_dir)
 
         model.learn(
@@ -583,6 +626,16 @@ def main():
 
         if not promotion_cb.promoted:
             print(f"Full budget used for {stage['name']}.")
+        if promotion_cb.best_model_path is not None and promotion_cb.best_success_rate > 0.0:
+            model = PPO.load(promotion_cb.best_model_path, env=stage_env, device="cpu")
+            print(
+                f"Restored best for {stage['name']}: "
+                f"sr={promotion_cb.best_success_rate:.2%} | "
+                f"reward={promotion_cb.best_mean_reward:.2f}"
+            )
+        elif promotion_cb.best_model_path is not None:
+            model = PPO.load(pre_stage_path, env=stage_env, device="cpu")
+            print(f"No successful checkpoint found for {stage['name']}; restored pre-stage model.")
 
     metrics = evaluate(model, final_stage_env, config["stage_eval_episodes"])
     print(
@@ -591,17 +644,20 @@ def main():
     )
 
     model.save(os.path.join(save_dir, "model_final"))
-    run_saliency_suite(model, final_stage_env, show=True)
 
     if config["viz_enabled"]:
         viz_save_path = config["viz_save_path"]
         if viz_save_path is not None and not os.path.isabs(viz_save_path):
             viz_save_path = os.path.join(save_dir, viz_save_path)
+        viz_image_dir = config.get("viz_image_dir") if config.get("viz_save_images") else None
+        if viz_image_dir is not None and not os.path.isabs(viz_image_dir):
+            viz_image_dir = os.path.join(save_dir, viz_image_dir)
         visualize_trained_policy(
             model,
             final_stage_env,
             delay=config["viz_delay"],
             save_path=viz_save_path,
+            image_dir=viz_image_dir,
         )
 
 

@@ -2,3 +2,5 @@ numpy
 matplotlib
 scikit-image
 pillow
+gymnasium
+stable-baselines3
