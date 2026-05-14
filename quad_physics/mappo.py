@@ -565,6 +565,8 @@ def main(run_config=None):
     final_stage_env = env
     total_stages = len(config["curriculum"])
     start_stage_idx = 0
+    completed_stage_count = start_stage_idx
+    stage_results = []
     resume_state = infer_resume_state(config, save_dir)
     if resume_state is not None:
         load_checkpoint(model, resume_state["path"], device)
@@ -581,6 +583,7 @@ def main(run_config=None):
             final_stage_env = build_env({**config, **config["curriculum"][-1]})
             print(f"Resumed from {resume_state['path']} ({resume_state['reason']}); curriculum already complete.")
 
+    completed_stage_count = start_stage_idx
     for stage_idx, stage in enumerate(config["curriculum"][start_stage_idx:], start=start_stage_idx + 1):
         stage_config = {**config, **stage}
         env = build_env(stage_config)
@@ -654,6 +657,15 @@ def main(run_config=None):
         if not promoted:
             print(f"Full budget used for {stage['name']}. Best stage success={stage_best_success:.2%}.")
         if stage_best_success <= 0.0:
+            stage_results.append(
+                {
+                    "name": stage["name"],
+                    "status": "failed",
+                    "best_success_rate": stage_best_success,
+                    "best_reward": stage_best_reward,
+                    "steps": stage_steps,
+                }
+            )
             model.load_state_dict(stage_best_state)
             if config["viz_enabled"]:
                 failed_viz_path = os.path.join(save_dir, f"failed_{stage['name']}_{global_steps}_steps.gif")
@@ -678,6 +690,16 @@ def main(run_config=None):
         if not promoted and stage_best_success < continue_success_rate:
             model.load_state_dict(stage_best_state)
             final_stage_env = eval_env
+            completed_stage_count = stage_idx
+            stage_results.append(
+                {
+                    "name": stage["name"],
+                    "status": "stopped",
+                    "best_success_rate": stage_best_success,
+                    "best_reward": stage_best_reward,
+                    "steps": stage_steps,
+                }
+            )
             print(
                 f"Stopping after {stage['name']}: best sr={stage_best_success:.2%} "
                 f"< continue threshold {continue_success_rate:.2%}."
@@ -686,6 +708,16 @@ def main(run_config=None):
 
         model.load_state_dict(stage_best_state)
         final_stage_env = eval_env
+        completed_stage_count = stage_idx
+        stage_results.append(
+            {
+                "name": stage["name"],
+                "status": "promoted" if promoted else "completed",
+                "best_success_rate": stage_best_success,
+                "best_reward": stage_best_reward,
+                "steps": stage_steps,
+            }
+        )
         print(f"Restored best for {stage['name']}: sr={stage_best_success:.2%} | reward={stage_best_reward:.2f}")
 
     final_metrics = evaluate(model, final_stage_env, config["stage_eval_episodes"], device)
@@ -715,6 +747,16 @@ def main(run_config=None):
         )
         if viz_save_path is not None:
             print(f"Saved Quad MAPPO rollout visualization to {viz_save_path}")
+
+    return {
+        "final_metrics": final_metrics,
+        "global_steps": global_steps,
+        "episodes": episodes,
+        "completed_stage_count": completed_stage_count,
+        "total_stages": total_stages,
+        "final_num_drones": final_stage_env.num_drones,
+        "stage_results": stage_results,
+    }
 
 
 if __name__ == "__main__":
