@@ -4,3 +4,9 @@ rl/
 *.pt
 *.zip
 *.pyc
+__pycache__/
+checkpoints/
+logs/
+saliency_output/
+*.gif
+*.png

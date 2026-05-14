@@ -90,11 +90,11 @@ These scripts generally:
 - generate a GIF or visualization of the resulting path,
 - and run saliency analysis after training.
 
-If you want short editable descriptions of these algorithms, see [algorithm_summaries.txt](/home/megrad/Documents/GitHub/EECS590/drone_rl/classical_methods/algorithm_summaries.txt).
+If you want short editable descriptions of these algorithms, see [algorithm_summaries.txt](drone_rl/classical_methods/algorithm_summaries.txt).
 
 ### Replay Buffer
 
-The classical trainers now share a small replay buffer implementation in [replay.py](/home/megrad/Documents/GitHub/EECS590/drone_rl/classical_methods/utils/replay.py).
+The classical trainers now share a small replay buffer implementation in [replay.py](drone_rl/classical_methods/utils/replay.py).
 
 The replay buffer: 
 
@@ -163,6 +163,29 @@ python sac.py
 python mappo.py
 ```
 
+Bayesian hyperparameter tuning for fixed-position MAPPO:
+
+```bash
+cd quad_physics
+python mappo_fixed.py --bayes-tune --tune-trials 20 --tune-storage sqlite:///mappo_fixed_bayes.db
+```
+
+To run a full fixed-position MAPPO curriculum with the best parameters after tuning, add `--tune-final-run`.
+
+Resume fixed-position MAPPO from a checkpoint:
+
+```bash
+cd quad_physics
+python mappo_fixed.py --resume path/to/checkpoint.pt --resume-stage stage_name
+```
+
+To auto-resume from the latest safe fixed-position MAPPO checkpoint, run:
+
+```bash
+cd quad_physics
+python mappo_fixed.py --resume
+```
+
 ## Saliency Analysis
 
 The classical methods use a shared saliency pipeline in `drone_rl/classical_methods/utils/saliency.py`. After a policy rollout is generated, the scripts call `run_saliency_suite(...)` to create visual explanations of the learned behavior.
@@ -222,4 +245,3 @@ Some older PPO runs in the repository also include:
 - intermediate stage-based checkpoint files
 
 depending on the training script version used for that experiment.
-

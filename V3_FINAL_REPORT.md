@@ -74,19 +74,21 @@ This matters because MAPPO training is expensive, and the later bridge stages ca
 
 ### Full Swarm Coordination
 
-I did not build a full swarm-control system. The project does include a multi-agent MAPPO environment, but the goal is still package delivery through constrained lanes, not emergent swarm behavior. A full swarm implementation would add complexity without directly improving the core delivery objective. For this project, multi-agent coordination is enough to test whether multiple drones can divide or repeat the same delivery task.
+I did not build a full swarm-control system. The project does include a multi-agent MAPPO environment, but the goal is still package delivery through constrained lanes, not emergent swarm behavior. A full swarm implementation would add complexity without directly improving the core delivery objective. For this project, multi-agent coordination is enough to test whether multiple drones can divide the delivery task.
 
 ### Isaac Sim or High-Fidelity Robotics Simulation
 
 I did not move the project into Isaac Sim or another high-fidelity robotics simulator. The current simulator is intentionally lightweight so that training iterations are fast enough to debug reward design, curricula, and algorithm choice. Moving to a full robotics simulator would be useful later, but it would distract from the current RL question: can an agent learn package pickup and delivery through constrained corridors?
 
-### Bayesian Hyperparameter Tuning
-
-I did not add Bayesian hyperparameter optimization in the final version. It would be relevant, especially because PPO/MAPPO are sensitive to entropy, learning rate, rollout length, and reward scaling. However, the current bottleneck is not only parameter search. The harder problem is curriculum design and avoiding a one-agent local optimum in MAPPO. I chose to spend V3 effort on resume support, staged training, visualization, and diagnosis before adding automated tuning.
-
 ### Everything-at-Once Algorithm Coverage
 
 I did not try to make every algorithm equally complete. The classical methods are useful baselines, while quad-physics PPO/MAPPO/SAC are the main experimental direction. Keeping every possible algorithm fully polished would make the repository look broader, but less focused. The final version prioritizes the algorithms that best match the current task.
+
+## Bayesian Hyperparameter Tuning
+
+I added Bayesian hyperparameter tuning for fixed-position MAPPO through `quad_physics/mappo_fixed.py --bayes-tune`. The tuning mode uses Optuna's TPE sampler to search over MAPPO parameters such as learning rate, entropy coefficient, PPO clip range, GAE lambda, discount factor, value-loss coefficient, gradient clipping, hidden size, rollout length, minibatch size, epochs, and actor exploration noise.
+
+Because full MAPPO curriculum trials are expensive, the default tuning setup evaluates shorter trials on the early fixed-position curriculum stages. Each trial writes its own checkpoint run, scores the resulting policy using final evaluation metrics and curriculum progress, and saves the best trial configuration under `quad_physics/checkpoints/mappo/tuning/`. After tuning, the best parameters can also be trained on the full curriculum with `--tune-final-run`.
 
 ## Current Training Problems
 
@@ -106,7 +108,7 @@ Future work should compare:
 - random delivery curriculum,
 - mixed fixed-to-random curriculum,
 - PPO versus MAPPO versus SAC,
-- and possibly hyperparameter tuning once the environment and curriculum are more stable.
+- and additional Bayesian hyperparameter tuning once the environment and curriculum are more stable.
 
 SAC is especially worth continuing because the quad-physics task uses continuous control. PPO/MAPPO are useful and already implemented, but SAC may be a better fit for continuous roll/pitch control in some stages.
 
