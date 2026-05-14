@@ -2,6 +2,25 @@
 
 This repository contains a reinforcement learning project focused on grid-based drone delivery. The agent must navigate through pipe-like lane layouts, pick up a package, and deliver it to a goal location. The project includes both classical reinforcement learning methods and Deep RL methods built on top of a shared delivery environment.
 
+For the Version 3 final writeup, including implementation decisions, rejected options, current limitations, and continuing work, see [V3_FINAL_REPORT.md](V3_FINAL_REPORT.md).
+
+## Problem Statement
+
+The main goal of this project is autonomous package delivery with drones. The maze or pipe-grid layout is intentional: it represents constrained air spaces that avoid flying directly over residential areas. Instead of giving the drone freedom to cross any cell in the map, the task asks the agent to stay inside approved lanes, pick up a package, and deliver it to the assigned destination.
+
+The project has evolved from classical grid-world delivery into quadcopter-style physics experiments. The newer quad-physics work keeps the high-level package-delivery goal, but replaces simple grid actions with continuous roll and pitch control, making the learned policy responsible for both navigation and stable movement.
+
+## Quad-Physics Updates
+
+The V3 work is focused on `quad_physics/`, especially curriculum training for fixed and multi-agent package delivery. As well as `drone_rl/ppo.py` and `drone_rl/mappo.py`.  
+
+The current MAPPO fixed-position curriculum can solve many earlier bridge stages, but it is still fragile when the package or deliveries move farther across the pipe map. Some of the issues that I am having: one drone learns to pick up and deliver while the other drone either does not pick up, does not deliver, or follows a stale route from an earlier stage. Training rollouts often show many pickups and deliveries, while deterministic evaluation collapses to only one delivered agent. This could mean that exploration noise is finding useful behavior, but the mean policy has not fully internalized the two-agent coordination pattern.
+
+The fixed curriculum is useful for debugging because it reveals exactly where the policy breaks, but it may also encourage overfitting to one route or one agent assignment. Continuing work should therefore include:
+
+- Returning to MAPPO random-delivery training once the fixed-stage curriculum is stable enough to bootstrap from.
+- Comparing fixed delivery, random delivery, and a combination of both.
+
 ## Setup
 
 Clone the repository and install dependencies:
@@ -9,13 +28,21 @@ Clone the repository and install dependencies:
 ```bash
 git clone https://github.com/cadengraf/EECS590.git
 cd EECS590
+python3 -m venv reinforcement_learning 
+source reinforcement_learning/bin/activate
 pip install -r requirements.txt
 ```
 
-Most scripts are run from inside `drone_rl/`:
+The classical methods and Deep RL algorithms that don't use drone physics are in `drone_rl/`:
 
 ```bash
 cd drone_rl
+```
+
+Whereas the quad-physics experiments are in `quad_physics/`:
+
+```bash
+cd quad_physics
 ```
 
 ## Project Structure
@@ -58,7 +85,7 @@ These scripts generally:
 - build a binary lane map from the pipe/grid utilities,
 - define start, package, and delivery positions,
 - train an agent with task-specific shaping rewards,
-- store experience tuples `(state, action, reward, next_state, done)` in a simple replay buffer during training,
+- in selected scripts, store experience tuples `(state, action, reward, next_state, done)` in a simple replay buffer during training,
 - roll out the learned policy,
 - generate a GIF or visualization of the resulting path,
 - and run saliency analysis after training.
@@ -83,7 +110,11 @@ This replay buffer is currently implemented in:
 - `monte_carlo.py`
 - `sarsa_n.py`
 
-Each of these trainers creates `self.replay_buffer` inside the agent class and appends one transition per environment step. This does not change the training update rules yet; it just makes stored experience available for inspection, debugging, or future replay-based experiments.
+Each of these classical trainers creates `self.replay_buffer` inside the agent class and appends one transition per environment step. This does not change the training update rules yet; it just makes stored experience available for inspection, debugging, or future replay-based experiments.
+
+Not all of these algorithms are off-policy. Q-learning is off-policy, so replay can naturally fit its learning style. SARSA and n-step SARSA are on-policy, and Monte Carlo control is usually treated as on-policy in this project, so their replay buffers are currently for logging/inspection rather than random replay-based updates. Using random replay to update SARSA directly would change the algorithm unless the update was redesigned carefully.
+
+`train_dqn.py` also uses replay, but not through this replay-buffer class. It uses Stable-Baselines3 DQN, which has its own built-in replay buffer because DQN is an off-policy value-based Deep RL algorithm.
 
 ## Deep RL Methods
 
@@ -96,11 +127,6 @@ At a high level:
 
 - DQN is value-based. It learns Q-values for actions and is a natural fit for discrete movement choices.
 - PPO is policy-gradient based. It directly improves a policy while using a value estimate for advantage computation.
-
-Current status notes:
-
-- The DQN pipeline currently works best for fixed environments and fixed-map training setups.
-- PPO is still under development. The long-term goal is to move PPO toward a multi-agent setting, so its current implementation should be treated as an ongoing experiment rather than the final intended direction.
 
 ## Running the Main Scripts
 
@@ -125,6 +151,16 @@ Deep RL examples:
 cd drone_rl
 python train_dqn.py
 python ppo.py
+```
+
+Inside `quad_physics/`:
+
+```bash
+cd quad_physics
+python ppo.py
+python mappo_fixed.py
+python sac.py
+python mappo.py
 ```
 
 ## Saliency Analysis
@@ -187,9 +223,3 @@ Some older PPO runs in the repository also include:
 
 depending on the training script version used for that experiment.
 
-## Notes
-
-- The classical scripts are mostly self-contained and define their own reward shaping and update rules.
-- The Deep RL scripts rely on the shared environment in `drone_rl/envs/drone_env.py`.
-- DQN should currently be viewed as the fixed-environment Deep RL baseline.
-- Still working on PPO and will try MAPPO when switch to multiple agents

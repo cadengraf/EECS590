@@ -1,199 +1,269 @@
-import os
-import json
-from collections import deque
-import numpy as np
-import torch
-from stable_baselines3 import DQN
-from stable_baselines3.common.callbacks import BaseCallback
-from envs.drone_env import DroneEnv
-from classical_methods.utils.pipes import PipeVisualizerBW, PipeGrid, PipeOptions
+import json as _json
+import os as _os
+import sys as _sys
 
-ACTION_NAMES = ["up", "down", "left", "right"]
+import numpy as _np
+import torch as _torch
+from stable_baselines3 import DQN as _DQN
+from stable_baselines3.common.callbacks import BaseCallback as _BaseCallback
+from stable_baselines3.common.utils import LinearSchedule as _LinearSchedule
 
+_THIS_DIR = _os.path.dirname(_os.path.abspath(__file__))
+if _THIS_DIR not in _sys.path:
+    _sys.path.insert(0, _THIS_DIR)
 
-# ── Env helpers ───────────────────────────────────────────────────────────────
-
-def build_bw_map(grid_size, loop_prob=0.25, seed=None):
-    np_state = np.random.get_state()
-    try:
-        if seed is not None:
-            np.random.seed(seed)
-        return PipeVisualizerBW(lanes=2, base=3).render(
-            PipeGrid(grid_size[0], grid_size[1], loop_prob=loop_prob).to_pipe_ids(PipeOptions())
-        )
-    finally:
-        np.random.set_state(np_state)
-
-
-def shortest_path_distances(env, start):
-    queue = deque([(start, 0)])
-    distances = {start: 0}
-    while queue:
-        (r, c), dist = queue.popleft()
-        for dr, dc in env.actions:
-            nxt = (r + dr, c + dc)
-            if nxt in env.lane_set and nxt not in distances:
-                distances[nxt] = dist + 1
-                queue.append((nxt, dist + 1))
-    return distances
-
-
-def pick_position_by_distance(candidates, min_dist, max_dist):
-    valid = [pos for pos, dist in candidates if min_dist <= dist <= max_dist]
-    if valid:
-        return valid[-1]
-    farther = [pos for pos, dist in candidates if dist >= min_dist]
-    if farther:
-        return farther[-1]
-    return candidates[-1][0]
-
-
-def configure_stage_positions(env, stage):
-    if not stage.get("placement_strategy"):
-        return
-
-    start = min(env.lane_coords, key=lambda pos: (pos[0] + pos[1], pos[0], pos[1]))
-    start_dists = shortest_path_distances(env, start)
-    reachable_from_start = sorted(
-        ((pos, dist) for pos, dist in start_dists.items() if pos != start),
-        key=lambda item: (item[1], item[0][0], item[0][1]),
+try:
+    from classical_methods.utils.saliency import run_saliency_suite as _render_saliency_suite
+    from ppo import (
+        ACTION_NAMES as _ACTION_NAMES,
+        build_env as _build_env,
+        clone_env as _clone_env,
+        describe_env as _describe_env,
+        draw_rollout_frame as _draw_rollout_frame,
+        is_delivery_success as _is_delivery_success,
+        rollout_policy as _ppo_rollout_policy,
+        _state_to_obs as _state_to_obs,
     )
-    if not reachable_from_start:
-        raise ValueError(f"No reachable lane cells found for stage {stage['name']}")
-
-    pkg = pick_position_by_distance(
-        reachable_from_start,
-        stage.get("package_min_dist", 1),
-        stage.get("package_max_dist", 9999),
-    )
-
-    pkg_dists = shortest_path_distances(env, pkg)
-    delivery_candidates = sorted(
-        (
-            (pos, dist) for pos, dist in pkg_dists.items()
-            if pos != start and pos != pkg
-            and start_dists.get(pos, -1) >= stage.get("delivery_min_start_dist", 0)
-        ),
-        key=lambda item: (item[1], start_dists.get(item[0], 0), item[0][0], item[0][1]),
-    )
-    if not delivery_candidates:
-        delivery_candidates = sorted(
-            ((pos, dist) for pos, dist in pkg_dists.items() if pos != start and pos != pkg),
-            key=lambda item: (item[1], start_dists.get(item[0], 0), item[0][0], item[0][1]),
-        )
-
-    delivery = pick_position_by_distance(
-        delivery_candidates,
-        stage.get("delivery_min_dist", 1),
-        stage.get("delivery_max_dist", 9999),
-    )
-
-    env.fixed_start = start
-    env.fixed_package = pkg
-    env.fixed_delivery = delivery
-
-
-def build_env(stage, print_freq=0):
-    env = DroneEnv(
-        build_bw_map(stage["grid_size"], stage.get("loop_prob", 0.25), seed=stage.get("map_seed")),
-        max_steps=stage["max_steps"],
-        print_freq=print_freq,
-        progress_reward_scale=stage.get("progress_reward_scale", 0.3),
-        randomize_package=stage.get("randomize_package", False),
-        randomize_delivery=stage.get("randomize_delivery", False),
-    )
-    configure_stage_positions(env, stage)
-    return env
-
-
-def clone_env(src, print_freq=0, randomize_package=None, randomize_delivery=None):
-    env = DroneEnv(
-        src.bw_map.copy(),
-        max_steps=src.max_steps,
-        print_freq=print_freq,
-        progress_reward_scale=src.progress_reward_scale,
-        randomize_package=src.randomize_package if randomize_package is None else randomize_package,
-        randomize_delivery=src.randomize_delivery if randomize_delivery is None else randomize_delivery,
-    )
-    env.fixed_start = src.fixed_start
-    env.fixed_package = src.fixed_package
-    env.fixed_delivery = src.fixed_delivery
-    return env
-
-
-def describe_env(tag, env):
-    print(
-        f"{tag}: obs={env.observation_space} grid={env.grid_shape} "
-        f"start={env.fixed_start} pkg={env.fixed_package} "
-        f"delivery={env.fixed_delivery} lanes={len(env.lane_coords)} "
-        f"rand_pkg={env.randomize_package} rand_del={env.randomize_delivery}"
+except ImportError:
+    from drone_rl.classical_methods.utils.saliency import run_saliency_suite as _render_saliency_suite
+    from drone_rl.ppo import (
+        ACTION_NAMES as _ACTION_NAMES,
+        build_env as _build_env,
+        clone_env as _clone_env,
+        describe_env as _describe_env,
+        draw_rollout_frame as _draw_rollout_frame,
+        is_delivery_success as _is_delivery_success,
+        rollout_policy as _ppo_rollout_policy,
+        _state_to_obs as _state_to_obs,
     )
 
 
-# ── Evaluation ────────────────────────────────────────────────────────────────
-
-def evaluate_stage(model, src_env, n_episodes):
-    eval_env = clone_env(src_env, randomize_package=src_env.randomize_package,
-                         randomize_delivery=src_env.randomize_delivery)
-    rewards, lengths, successes, pickups = [], [], 0, 0
-
-    for i in range(n_episodes):
-        obs, _ = eval_env.reset(seed=i)
-        done = truncated = False
-        ep_reward, steps, picked_up = 0.0, 0, False
-
-        while not (done or truncated):
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, truncated, _ = eval_env.step(action)
-            ep_reward += reward
-            steps += 1
-            picked_up = picked_up or bool(eval_env.state[2])
-
-        rewards.append(ep_reward)
-        lengths.append(steps)
-        pickups += int(picked_up)
-        delivered = (
-            done
-            and tuple(eval_env.state[:2]) == tuple(eval_env.fixed_delivery)
-            and bool(eval_env.state[2])
-        )
-        successes += int(delivered)
-
-    return successes / n_episodes, pickups / n_episodes, float(np.mean(rewards)), float(np.mean(lengths))
+_DQN_MODEL_KEYS = (
+    "learning_rate",
+    "gamma",
+    "batch_size",
+    "buffer_size",
+    "learning_starts",
+    "train_freq",
+    "target_update_interval",
+    "exploration_fraction",
+    "exploration_initial_eps",
+    "exploration_final_eps",
+)
 
 
-# ── Callbacks ─────────────────────────────────────────────────────────────────
+_dqn_config = {
+    "run_name": "dqn_curriculum_v3",
+    "learning_rate": 1e-4,
+    "gamma": 0.99,
+    "batch_size": 128,
+    "buffer_size": 100_000,
+    "learning_starts": 10_000,
+    "train_freq": 4,
+    "target_update_interval": 2_000,
+    "exploration_initial_eps": 1.0,
+    "exploration_final_eps": 0.05,
+    "exploration_fraction": 0.40,
+    "net_arch": [256, 256],
+    "loop_prob": 0.25,
+    "step_penalty": -0.2,
+    "invalid_move_penalty": 200.0,
+    "revisit_penalty": 0.05,
+    "revisit_penalty_cap": 1.5,
+    "backtrack_penalty": 1.0,
+    "pickup_reward": 300.0,
+    "delivery_reward": 1000.0,
+    "progress_print_freq": 10_000,
+    "qdiag_freq": 25_000,
+    "env_print_freq": 20_000,
+    "stage_eval_every": 25_000,
+    "stage_eval_episodes": 20,
+    "stage_promotion_success_rate": 0.70,
+    "stage_min_timesteps_before_promotion": 50_000,
+    "viz_delay": 0.12,
+    "viz_enabled": True,
+    "viz_save_path": "dqn_rollout.gif",
+    "saliency_enabled": True,
+    "curriculum": [
+        {
+            "name": "s1_line_two_rewards",
+            "map_layout": "straight_line",
+            "line_length": 4,
+            "map_padding": 1,
+            "max_steps": 8,
+            "timesteps": 40_000,
+            "fixed_start": [1, 1],
+            "fixed_package": [1, 2],
+            "fixed_delivery": [1, 3],
+            "randomize_package": False,
+            "randomize_delivery": False,
+            "eval_every": 5_000,
+            "min_timesteps_before_promotion": 10_000,
+            "promotion_success_rate": 0.90,
+            "exploration_fraction": 0.25,
+            "revisit_penalty": 0.0,
+            "revisit_penalty_cap": 0.0,
+            "backtrack_penalty": 0.2,
+        },
+        {
+            "name": "s2_line_longer",
+            "map_layout": "straight_line",
+            "line_length": 7,
+            "map_padding": 1,
+            "max_steps": 14,
+            "timesteps": 80_000,
+            "fixed_start": [1, 1],
+            "fixed_package": [1, 3],
+            "fixed_delivery": [1, 6],
+            "randomize_package": False,
+            "randomize_delivery": False,
+            "eval_every": 10_000,
+            "min_timesteps_before_promotion": 20_000,
+            "promotion_success_rate": 0.85,
+            "exploration_fraction": 0.30,
+            "revisit_penalty": 0.01,
+            "revisit_penalty_cap": 0.2,
+            "backtrack_penalty": 0.3,
+        },
+        {
+            "name": "s3_t_junction",
+            "map_layout": "t_junction",
+            "stem_length": 5,
+            "branch_left": 2,
+            "branch_right": 2,
+            "map_padding": 1,
+            "max_steps": 30,
+            "timesteps": 150_000,
+            "fixed_start": [5, 3],
+            "fixed_package": [3, 3],
+            "fixed_delivery": [1, 5],
+            "randomize_package": True,
+            "randomize_delivery": False,
+            "eval_every": 15_000,
+            "min_timesteps_before_promotion": 40_000,
+            "promotion_success_rate": 0.75,
+            "exploration_initial_eps": 0.8,
+            "exploration_fraction": 0.35,
+            "step_penalty": -0.1,
+            "revisit_penalty": 0.02,
+            "revisit_penalty_cap": 0.5,
+            "backtrack_penalty": 0.5,
+            "clear_buffer_on_start": True,
+        },
+        {
+            "name": "s4_random_package_small_pipe",
+            "grid_size": [3, 3],
+            "max_steps": 180,
+            "timesteps": 180_000,
+            "map_seed": 101,
+            "package_min_dist": 3,
+            "package_max_dist": 7,
+            "delivery_min_dist": 3,
+            "delivery_max_dist": 7,
+            "delivery_min_start_dist": 5,
+            "randomize_package": True,
+            "randomize_delivery": False,
+            "eval_every": 20_000,
+            "min_timesteps_before_promotion": 60_000,
+            "promotion_success_rate": 0.75,
+            "exploration_initial_eps": 0.6,
+            "exploration_fraction": 0.40,
+            "clear_buffer_on_start": True,
+        },
+        {
+            "name": "s5_random_both_small_pipe",
+            "grid_size": [4, 4],
+            "max_steps": 300,
+            "timesteps": 250_000,
+            "map_seed": 101,
+            "package_min_dist": 5,
+            "package_max_dist": 10,
+            "delivery_min_dist": 4,
+            "delivery_max_dist": 9,
+            "delivery_min_start_dist": 8,
+            "randomize_package": True,
+            "randomize_delivery": True,
+            "eval_every": 25_000,
+            "min_timesteps_before_promotion": 75_000,
+            "promotion_success_rate": 0.75,
+            "exploration_initial_eps": 0.5,
+            "exploration_fraction": 0.45,
+            "clear_buffer_on_start": True,
+        },
+        {
+            "name": "s6_random_both_medium_pipe",
+            "grid_size": [6, 6],
+            "max_steps": 500,
+            "timesteps": 350_000,
+            "map_seed": 202,
+            "package_min_dist": 8,
+            "package_max_dist": 16,
+            "delivery_min_dist": 7,
+            "delivery_max_dist": 16,
+            "delivery_min_start_dist": 14,
+            "randomize_package": True,
+            "randomize_delivery": True,
+            "eval_every": 25_000,
+            "min_timesteps_before_promotion": 100_000,
+            "promotion_success_rate": 0.75,
+            "exploration_initial_eps": 0.45,
+            "exploration_fraction": 0.50,
+            "clear_buffer_on_start": True,
+            "learning_starts": 20_000,
+        },
+        {
+            "name": "s7_random_both_large_pipe",
+            "grid_size": [8, 8],
+            "max_steps": 900,
+            "timesteps": 500_000,
+            "map_seed": 303,
+            "package_min_dist": 10,
+            "package_max_dist": 20,
+            "delivery_min_dist": 8,
+            "delivery_max_dist": 18,
+            "delivery_min_start_dist": 16,
+            "randomize_package": True,
+            "randomize_delivery": True,
+            "eval_every": 25_000,
+            "min_timesteps_before_promotion": 125_000,
+            "promotion_success_rate": 0.75,
+            "exploration_initial_eps": 0.40,
+            "exploration_fraction": 0.55,
+            "clear_buffer_on_start": True,
+            "learning_starts": 25_000,
+        },
+    ],
+}
+_dqn_config["total_timesteps"] = sum(stage["timesteps"] for stage in _dqn_config["curriculum"])
 
-class ProgressCallback(BaseCallback):
-    def __init__(self, print_freq=5000):
+
+class _DQNProgressCallback(_BaseCallback):
+    def __init__(self, print_freq=10_000):
         super().__init__()
         self.print_freq = print_freq
+        self.episodes = 0
 
-    def _on_step(self):
+    def _on_step(self) -> bool:
+        self.episodes += int(_np.sum(self.locals.get("dones", [])))
         if self.num_timesteps % self.print_freq == 0:
-            print(f"  Step {self.num_timesteps:>7} | Episodes: {self.model._episode_num:>5} | eps: {self.model.exploration_rate:.3f}")
+            print(
+                f"Step {self.num_timesteps:>7} | Episodes: {self.episodes:>5} "
+                f"| eps={self.model.exploration_rate:.3f}"
+            )
         return True
 
 
-class QValueDiagnosticCallback(BaseCallback):
-    def __init__(self, env, check_freq=20_000):
-        super().__init__()
-        self.diag_env = env
-        self.check_freq = check_freq
-
-    def _on_step(self):
-        if self.num_timesteps % self.check_freq == 0:
-            obs, _ = self.diag_env.reset()
-            obs_t = torch.as_tensor(np.array([obs], dtype=np.float32), device=self.model.device)
-            with torch.no_grad():
-                q = self.model.q_net(obs_t).cpu().numpy()[0]
-            print(f"\n[Q-diag {self.num_timesteps}] Q={np.round(q, 3)}")
-        return True
-
-
-class StagePromotionCallback(BaseCallback):
-    def __init__(self, stage_name, source_env, eval_every, n_eval_episodes,
-                 promotion_threshold, min_timesteps_before_promotion, save_dir):
+class _DQNEvalCallback(_BaseCallback):
+    def __init__(
+        self,
+        stage_name,
+        source_env,
+        eval_every,
+        n_eval_episodes,
+        promotion_threshold,
+        min_timesteps_before_promotion,
+        save_dir,
+    ):
         super().__init__()
         self.stage_name = stage_name
         self.source_env = source_env
@@ -204,332 +274,238 @@ class StagePromotionCallback(BaseCallback):
         self.save_dir = save_dir
         self.promoted = False
 
-    def _on_step(self):
+    def _on_step(self) -> bool:
         if self.num_timesteps % self.eval_every != 0:
             return True
 
-        sr, pr, mr, ml = evaluate_stage(self.model, self.source_env, self.n_eval_episodes)
-        print(f"Eval @{self.num_timesteps:>6} | sr={sr:.2%} pr={pr:.2%} reward={mr:.2f} len={ml:.1f}")
-        self.model.save(os.path.join(self.save_dir, f"model_{self.stage_name}_{self.num_timesteps}_steps"))
+        metrics = _dqn_evaluate(self.model, self.source_env, self.n_eval_episodes)
+        print(
+            f"Eval @{self.num_timesteps:>7} | "
+            f"sr={metrics['success_rate']:.2%} | "
+            f"pickups={metrics['pickup_rate']:.2%} | "
+            f"reward={metrics['mean_reward']:.2f} +/- {metrics['std_reward']:.2f}"
+        )
+        self.model.save(_os.path.join(self.save_dir, f"model_{self.stage_name}_{self.num_timesteps}_steps"))
 
-        if self.num_timesteps >= self.min_timesteps and sr >= self.promotion_threshold:
-            print(f"Early promotion from {self.stage_name}: {sr:.2%} >= {self.promotion_threshold:.2%}")
+        if self.num_timesteps >= self.min_timesteps and metrics["success_rate"] >= self.promotion_threshold:
+            print(
+                f"Early promotion from {self.stage_name}: "
+                f"{metrics['success_rate']:.2%} >= {self.promotion_threshold:.2%}"
+            )
             self.promoted = True
             return False
         return True
 
 
-# ── Visualization ─────────────────────────────────────────────────────────────
+class _DQNQDiagnosticCallback(_BaseCallback):
+    def __init__(self, env, check_freq=25_000):
+        super().__init__()
+        self.diag_env = env
+        self.check_freq = check_freq
 
-def visualize_trained_policy(model, src_env, delay=0.12, save_path=None):
+    def _on_step(self) -> bool:
+        if self.num_timesteps % self.check_freq != 0:
+            return True
+        obs, _ = self.diag_env.reset()
+        obs_tensor = _torch.as_tensor(obs[None], dtype=_torch.float32, device=self.model.device)
+        with _torch.no_grad():
+            q_values = self.model.q_net(obs_tensor).cpu().numpy()[0]
+        print(f"[Q-diag {self.num_timesteps}] Q={_np.round(q_values, 3)}")
+        return True
+
+
+def _dqn_evaluate(model, env, n_episodes=20):
+    eval_env = _clone_env(env)
+    rewards = []
+    successes = 0
+    pickups = 0
+    for seed in range(n_episodes):
+        obs, _ = eval_env.reset(seed=seed)
+        done = truncated = False
+        total_reward = 0.0
+        picked_up = False
+        while not (done or truncated):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, _ = eval_env.step(action)
+            total_reward += reward
+            picked_up = picked_up or bool(eval_env.state[2])
+        rewards.append(total_reward)
+        pickups += int(picked_up)
+        successes += int(_is_delivery_success(eval_env, done))
+    return {
+        "success_rate": successes / n_episodes,
+        "pickup_rate": pickups / n_episodes,
+        "mean_reward": float(_np.mean(rewards)),
+        "std_reward": float(_np.std(rewards)),
+    }
+
+
+def _dqn_run_saliency_suite(model, env, show=True):
+    rollout_env, path = _ppo_rollout_policy(model, env)
+
+    class DQNSaliencyAdapter:
+        def __init__(self, sb3_model, rollout_env):
+            self.actions = rollout_env.actions
+            self.lane_coords = rollout_env.lane_coords
+            self.package_pos = rollout_env.fixed_package
+            self.delivery_pos = rollout_env.fixed_delivery
+            self.Q = {}
+
+            with _torch.no_grad():
+                for r, c in rollout_env.lane_coords:
+                    for has_pkg in (False, True):
+                        state = (r, c, has_pkg)
+                        obs = _state_to_obs(rollout_env, state)
+                        obs_tensor = _torch.as_tensor(
+                            obs[None],
+                            dtype=_torch.float32,
+                            device=sb3_model.device,
+                        )
+                        self.Q[state] = sb3_model.q_net(obs_tensor).cpu().numpy()[0].copy()
+
+    _render_saliency_suite(
+        DQNSaliencyAdapter(model, rollout_env),
+        [tuple(frame["state"]) for frame in path],
+        rollout_env.bw_map,
+        show=show,
+    )
+
+
+def _dqn_visualize_trained_policy(model, env, delay=0.12, save_path=None):
     import matplotlib.pyplot as plt
-    from matplotlib.colors import ListedColormap
-    from matplotlib.animation import FuncAnimation
 
-    env = clone_env(src_env, randomize_package=False, randomize_delivery=False)
-    obs, _ = env.reset()
-    trajectory = [(env.state[0], env.state[1])]
-    total_reward, steps = 0.0, 0
-    done = truncated = False
-
-    cmap = ListedColormap(["#1a1a1a", "#f1efe8"])
+    rollout_env, frames = _ppo_rollout_policy(model, env)
     fig, (ax_g, ax_i) = plt.subplots(1, 2, figsize=(13, 6), gridspec_kw={"width_ratios": [2.2, 1]})
     fig.tight_layout(pad=2.0)
 
-    def update(frame):
-        nonlocal trajectory, total_reward, steps, done, truncated
-        action, _ = model.predict(obs, deterministic=True)
-        obs, reward, done, truncated, _ = env.step(action)
-        total_reward += reward
-        steps += 1
-        r, c, has_pkg = env.state
-        trajectory.append((r, c))
-
-        ax_g.clear()
-        ax_i.clear()
-        ax_g.imshow(env.bw_map, cmap=cmap, origin="upper", vmin=0, vmax=1)
-        ax_g.set(xticks=[], yticks=[], title=f"Policy Rollout | Step {steps}")
-
-        if len(trajectory) > 1:
-            ax_g.plot([p[1] for p in trajectory], [p[0] for p in trajectory],
-                      color="#3f88c5", linewidth=2.0, alpha=0.8)
-
-        sr, sc = env.fixed_start
-        pr, pc = env.fixed_package
-        dr, dc = env.fixed_delivery
-        ax_g.scatter(sc, sr, s=80, color="#5b8c5a", zorder=4)
-        if not has_pkg:
-            ax_g.scatter(pc, pr, marker="s", s=120, color="#f2c14e", zorder=5)
-        ax_g.scatter(dc, dr, marker="*", s=180, color="#ef476f", zorder=5)
-
-        drone_color = "#06d6a0" if done else "#8338ec" if truncated else "#ff7f11" if has_pkg else "#118ab2"
-        ax_g.scatter(c, r, s=140, color=drone_color, zorder=6)
-
-        ax_i.set(xlim=(0, 1), ylim=(0, 1))
-        ax_i.axis("off")
-        ax_i.text(0.5, 0.96, "Rollout Info", ha="center", va="top", fontsize=14, fontweight="bold")
-        goal = env.fixed_delivery if has_pkg else env.fixed_package
-        lines = [
-            ("action", ACTION_NAMES[int(action)]),
-            ("step reward", f"{reward:+.2f}"),
-            ("total reward", f"{total_reward:+.2f}"),
-            ("position", f"({r}, {c})"),
-            ("carrying", "yes" if has_pkg else "no"),
-            ("goal", str(goal)),
-            ("start", str(env.fixed_start)),
-            ("package", str(env.fixed_package)),
-            ("delivery", str(env.fixed_delivery)),
-            ("status", "delivered" if done else "truncated" if truncated else "running"),
-        ]
-        for y, (k, v) in zip(np.linspace(0.86, 0.01, len(lines)), lines):
-            ax_i.text(0.08, y, k, ha="left", va="top", fontsize=10, color="#666")
-            ax_i.text(0.92, y, v, ha="right", va="top", fontsize=10, color="#111")
-
     if save_path is not None:
-        anim = FuncAnimation(fig, update, frames=range(steps + 1), interval=delay * 1000, repeat=False)
-        plt.ioff()
+        from matplotlib.animation import FuncAnimation
+
+        def update(frame_idx):
+            _draw_rollout_frame(ax_g, ax_i, rollout_env, frames[frame_idx])
+
+        anim = FuncAnimation(fig, update, frames=len(frames), interval=delay * 1000, repeat=False)
         anim.save(save_path, writer="ffmpeg")
+        plt.close(fig)
+        return
+
+    plt.ion()
+    plt.show(block=False)
+    for frame in frames:
+        _draw_rollout_frame(ax_g, ax_i, rollout_env, frame)
+        fig.canvas.draw_idle()
+        plt.pause(delay)
+    plt.ioff()
+    plt.show()
 
 
-# ── Config ────────────────────────────────────────────────────────────────────
-
-run_name = "mlp_sparse_curriculum_v2"
-save_dir = f"checkpoints/dqn/task1/{run_name}"
-os.makedirs(save_dir, exist_ok=True)
-
-config = {
-    # Model defaults (overridable per stage)
-    "learning_rate": 1e-4,
-    "gamma": 0.99,
-    "batch_size": 128,
-    "buffer_size": 100_000,
-    "learning_starts": 20_000,
-    "train_freq": 4,
-    "target_update_interval": 2000,
-    # Exploration defaults (overridable per stage)
-    "stage_exploration_initial_eps": 1.0,
-    "stage_exploration_final_eps": 0.10,
-    "stage_exploration_fraction": 0.40,
-    # Logging / eval
-    "viz_delay": 0.12,
-    "progress_print_freq": 5000,
-    "qdiag_freq": 20_000,
-    "env_print_freq": 20_000,
-    "stage_eval_episodes": 20,
-    "stage_eval_every": 25_000,
-    "stage_promotion_success_rate": 0.70,
-    "stage_min_timesteps_before_promotion": 50_000,
-    "curriculum": [
-        {
-            "name": "s1",
-            "grid_size": [4, 4],
-            "max_steps": 250,
-            "timesteps": 250_000,
-            "map_seed": 101,
-            "randomize_package": False,
-            "randomize_delivery": False,
-            "placement_strategy": "distance_bands",
-            "package_min_dist": 5,  "package_max_dist": 10,
-            "delivery_min_dist": 4, "delivery_max_dist": 9,
-            "delivery_min_start_dist": 8,
-            "exploration_initial_eps": 1.0,
-            "exploration_fraction": 0.35,
-        },
-        {
-            "name": "s2",
-            "grid_size": [6, 6],
-            "max_steps": 400,
-            "timesteps": 400_000,
-            "map_seed": 202,
-            "randomize_package": False,
-            "randomize_delivery": False,
-            "placement_strategy": "distance_bands",
-            "package_min_dist": 8,  "package_max_dist": 16,
-            "delivery_min_dist": 7, "delivery_max_dist": 16,
-            "delivery_min_start_dist": 14,
-            "exploration_initial_eps": 0.8,
-            "exploration_fraction": 0.40,
-        },
-        {
-            "name": "s3",
-            "grid_size": [6, 6],
-            "max_steps": 500,
-            "timesteps": 750_000,
-            "map_seed": 202,
-            "randomize_package": True,
-            "randomize_delivery": False,
-            "placement_strategy": "distance_bands",
-            "package_min_dist": 8,  "package_max_dist": 16,
-            "delivery_min_dist": 7, "delivery_max_dist": 16,
-            "delivery_min_start_dist": 14,
-            "exploration_initial_eps": 0.5,
-            "exploration_fraction": 0.40,
-            "min_timesteps_before_promotion": 100_000,
-            "clear_buffer_on_start": True,
-            "learning_starts": 20_000,
-        },
-        {
-            "name": "s4",
-            "grid_size": [8, 8],
-            "max_steps": 1500,          
-            "timesteps": 1_250_000,
-            "map_seed": 303,
-            "randomize_package": True,
-            "randomize_delivery": False,
-            "placement_strategy": "distance_bands",
-            "package_min_dist": 10, "package_max_dist": 20,
-            "delivery_min_dist": 8, "delivery_max_dist": 18,
-            "delivery_min_start_dist": 16,
-            "exploration_initial_eps": 0.30,
-            "exploration_fraction": 0.30,  
-            "exploration_final_eps": 0.05,
-            "min_timesteps_before_promotion": 150_000,
-            "clear_buffer_on_start": True,  
-            "learning_starts": 30_000,     
-        },
-        {
-            "name": "s5",
-            "grid_size": [10, 10],
-            "max_steps": 3000,
-            "timesteps": 2_000_000,
-            "map_seed": 404,
-            "randomize_package": True,
-            "randomize_delivery": True,
-            "placement_strategy": "distance_bands",
-            "package_min_dist": 14, "package_max_dist": 28,
-            "delivery_min_dist": 12,"delivery_max_dist": 28,
-            "delivery_min_start_dist": 22,
-            "exploration_initial_eps": 0.40, # warm start; agent knows the task
-            "exploration_fraction": 0.50,
-            "exploration_final_eps": 0.05,
-            "min_timesteps_before_promotion": 200_000,
-            "clear_buffer_on_start": True,
-            "learning_starts": 30_000,
-        },
-        {
-            "name": "s6",
-            "grid_size": [12, 12],
-            "max_steps": 6000,
-            "timesteps": 2_500_000,
-            "map_seed": 505,
-            "randomize_package": True,
-            "randomize_delivery": True,
-            "placement_strategy": "distance_bands",
-            "package_min_dist": 18, "package_max_dist": 36,
-            "delivery_min_dist": 16,"delivery_max_dist": 36,
-            "delivery_min_start_dist": 28,
-            "exploration_initial_eps": 0.30,
-            "exploration_fraction": 0.40,
-            "exploration_final_eps": 0.05,
-            "min_timesteps_before_promotion": 250_000,
-            "clear_buffer_on_start": True,
-            "learning_starts": 30_000,
-        },
-    ],
-}
-config["timesteps"] = sum(s["timesteps"] for s in config["curriculum"])
-
-with open(f"{save_dir}/config.json", "w") as f:
-    json.dump(config, f, indent=4)
-
-
-# ── Model init ────────────────────────────────────────────────────────────────
-
-first_stage = config["curriculum"][0]
-train_env = build_env(first_stage, print_freq=config["env_print_freq"])
-describe_env("Initial", train_env)
-
-model = DQN(
-    "MlpPolicy",
-    train_env,
-    learning_rate=config["learning_rate"],
-    gamma=config["gamma"],
-    batch_size=config["batch_size"],
-    buffer_size=config["buffer_size"],
-    learning_starts=config["learning_starts"],
-    train_freq=config["train_freq"],
-    target_update_interval=config["target_update_interval"],
-    exploration_fraction=config["stage_exploration_fraction"],
-    exploration_initial_eps=config["stage_exploration_initial_eps"],
-    exploration_final_eps=config["stage_exploration_final_eps"],
-    policy_kwargs=dict(net_arch=[256, 256]),
-    verbose=0,
-)
-
-
-# ── Curriculum loop ───────────────────────────────────────────────────────────
-
-final_stage_env = train_env
-for i, stage in enumerate(config["curriculum"], 1):
-    if stage.get("randomize_package") and stage.get("randomize_delivery"):
-        stage_mode = "random package+delivery"
-    elif stage.get("randomize_package"):
-        stage_mode = "random package"
-    else:
-        stage_mode = "fixed positions"
-
-    print(f"\n=== Stage {i}/{len(config['curriculum'])}: {stage['name']} ({stage_mode}) ===")
-
-    stage_env = build_env(stage, print_freq=config["env_print_freq"])
-    describe_env("Stage", stage_env)
-    model.set_env(stage_env)
-
-    # Clear replay buffer when entering a new map to avoid stale transitions
-    if stage.get("clear_buffer_on_start"):
-        model.replay_buffer.reset()
-        print(f"  Replay buffer cleared for {stage['name']}")
-
-    # Per-stage learning_starts override
-    if "learning_starts" in stage:
-        model.learning_starts = stage["learning_starts"]
-        print(f"  learning_starts set to {model.learning_starts}")
-
-    # Exploration schedule
-    for attr, key in [
-        ("exploration_initial_eps", "stage_exploration_initial_eps"),
-        ("exploration_final_eps",   "stage_exploration_final_eps"),
-        ("exploration_fraction",    "stage_exploration_fraction"),
-    ]:
-        setattr(model, attr, stage.get(attr, config[key]))
-    model.exploration_rate = model.exploration_initial_eps
-    print(
-        f"Exploration: init={model.exploration_initial_eps:.2f} "
-        f"final={model.exploration_final_eps:.2f} "
-        f"fraction={model.exploration_fraction:.2f}"
+def _make_dqn_model(env):
+    return _DQN(
+        "MlpPolicy",
+        env,
+        **{key: _dqn_config[key] for key in _DQN_MODEL_KEYS},
+        policy_kwargs={"net_arch": _dqn_config["net_arch"]},
+        verbose=0,
+        device="cpu",
     )
 
-    promotion_cb = StagePromotionCallback(
+
+def _configure_dqn_stage_model(model, stage):
+    if stage.get("clear_buffer_on_start"):
+        model.replay_buffer.reset()
+        print(f"Replay buffer cleared for {stage['name']}")
+
+    model.learning_starts = stage.get("learning_starts", _dqn_config["learning_starts"])
+    initial_eps = stage.get("exploration_initial_eps", _dqn_config["exploration_initial_eps"])
+    final_eps = stage.get("exploration_final_eps", _dqn_config["exploration_final_eps"])
+    fraction = stage.get("exploration_fraction", _dqn_config["exploration_fraction"])
+    model.exploration_initial_eps = initial_eps
+    model.exploration_final_eps = final_eps
+    model.exploration_fraction = fraction
+    model.exploration_schedule = _LinearSchedule(initial_eps, final_eps, fraction)
+    model.exploration_rate = initial_eps
+    print(f"Exploration: init={initial_eps:.2f} final={final_eps:.2f} fraction={fraction:.2f}")
+
+
+def _dqn_stage_mode(stage):
+    if stage.get("randomize_package") and stage.get("randomize_delivery"):
+        return "random package+delivery"
+    if stage.get("randomize_package"):
+        return "random package"
+    return "fixed positions"
+
+
+def _make_dqn_promotion_callback(stage, stage_env, save_dir):
+    return _DQNEvalCallback(
         stage_name=stage["name"],
         source_env=stage_env,
-        eval_every=stage.get("eval_every", config["stage_eval_every"]),
-        n_eval_episodes=stage.get("eval_episodes", config["stage_eval_episodes"]),
-        promotion_threshold=stage.get("promotion_success_rate", config["stage_promotion_success_rate"]),
+        eval_every=stage.get("eval_every", _dqn_config["stage_eval_every"]),
+        n_eval_episodes=stage.get("eval_episodes", _dqn_config["stage_eval_episodes"]),
+        promotion_threshold=stage.get("promotion_success_rate", _dqn_config["stage_promotion_success_rate"]),
         min_timesteps_before_promotion=stage.get(
-            "min_timesteps_before_promotion", config["stage_min_timesteps_before_promotion"]
+            "min_timesteps_before_promotion",
+            _dqn_config["stage_min_timesteps_before_promotion"],
         ),
         save_dir=save_dir,
     )
 
-    model.learn(
-        total_timesteps=stage["timesteps"],
-        reset_num_timesteps=True,
-        callback=[
-            ProgressCallback(config["progress_print_freq"]),
-            QValueDiagnosticCallback(stage_env, config["qdiag_freq"]),
-            promotion_cb,
-        ],
+
+def main():
+    save_dir = _os.path.join("checkpoints", "dqn", "task1", _dqn_config["run_name"])
+    _os.makedirs(save_dir, exist_ok=True)
+
+    with open(_os.path.join(save_dir, "config.json"), "w") as f:
+        _json.dump(_dqn_config, f, indent=4)
+
+    first_stage = {**_dqn_config, **_dqn_config["curriculum"][0]}
+    env = _build_env(first_stage, print_freq=_dqn_config["env_print_freq"])
+    _describe_env("Initial", env)
+    model = _make_dqn_model(env)
+
+    final_stage_env = env
+    total_stages = len(_dqn_config["curriculum"])
+    for stage_idx, stage in enumerate(_dqn_config["curriculum"], start=1):
+        stage_config = {**_dqn_config, **stage}
+        stage_env = _build_env(stage_config, print_freq=_dqn_config["env_print_freq"])
+        final_stage_env = stage_env
+
+        print(f"\n=== Stage {stage_idx}/{total_stages}: {stage['name']} ({_dqn_stage_mode(stage)}) ===")
+        _describe_env("Stage", stage_env)
+        model.set_env(stage_env)
+        _configure_dqn_stage_model(model, stage)
+        promotion_cb = _make_dqn_promotion_callback(stage, stage_env, save_dir)
+
+        model.learn(
+            total_timesteps=stage["timesteps"],
+            reset_num_timesteps=True,
+            callback=[
+                _DQNProgressCallback(_dqn_config["progress_print_freq"]),
+                _DQNQDiagnosticCallback(stage_env, _dqn_config["qdiag_freq"]),
+                promotion_cb,
+            ],
+        )
+
+        if not promotion_cb.promoted:
+            print(f"Full budget used for {stage['name']}.")
+
+    metrics = _dqn_evaluate(model, final_stage_env, _dqn_config["stage_eval_episodes"])
+    print(
+        f"Final eval | success_rate={metrics['success_rate']:.2%} "
+        f"| pickup_rate={metrics['pickup_rate']:.2%} "
+        f"| mean_reward={metrics['mean_reward']:.2f} +/- {metrics['std_reward']:.2f}"
     )
 
-    if not promotion_cb.promoted:
-        print(f"Full budget used for {stage['name']}.")
+    model.save(_os.path.join(save_dir, "model_final"))
+    if _dqn_config["saliency_enabled"]:
+        _dqn_run_saliency_suite(model, final_stage_env, show=True)
 
-    # Reset learning_starts to global default after each stage
-    model.learning_starts = config["learning_starts"]
-    final_stage_env = stage_env
+    if _dqn_config["viz_enabled"]:
+        viz_save_path = _dqn_config["viz_save_path"]
+        if viz_save_path is not None and not _os.path.isabs(viz_save_path):
+            viz_save_path = _os.path.join(save_dir, viz_save_path)
+        _dqn_visualize_trained_policy(model, final_stage_env, delay=_dqn_config["viz_delay"], save_path=viz_save_path)
 
 
-# ── Final save + viz ──────────────────────────────────────────────────────────
-
-model.save(f"{save_dir}/model_final")
-print("Training complete!")
-visualize_trained_policy(model, final_stage_env, delay=config["viz_delay"])
+if __name__ == "__main__":
+    main()
+    raise SystemExit
