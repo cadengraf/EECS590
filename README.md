@@ -10,6 +10,10 @@ The main goal of this project is autonomous package delivery with drones. The ma
 
 The project has evolved from classical grid-world delivery into quadcopter-style physics experiments. The newer quad-physics work keeps the high-level package-delivery goal, but replaces simple grid actions with continuous roll and pitch control, making the learned policy responsible for both navigation and stable movement.
 
+## Acknowledgments and Assistance
+
+I used ChatGPT/Codex as a programming assistant while developing and cleaning this repository. I used it for debugging help, code review, documentation edits, and implementation support. The project direction, algorithm choices, experiment design, and final decisions are my own.
+
 ## Quad-Physics Updates
 
 The V3 work is focused on `quad_physics/`, especially curriculum training for fixed and multi-agent package delivery. As well as `drone_rl/ppo.py` and `drone_rl/mappo.py`.  
